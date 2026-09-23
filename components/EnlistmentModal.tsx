@@ -230,7 +230,7 @@ export default function EnlistmentModal({
                 <label>Barcode / EAN-13 *</label>
                 <input
                   type="text"
-                  placeholder="8941100511261"
+                  placeholder="e.g. 8941100123456"
                   value={form.barcode}
                   onChange={(e) => setForm({ ...form, barcode: e.target.value })}
                   required

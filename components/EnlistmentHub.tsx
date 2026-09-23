@@ -53,6 +53,7 @@ export default function EnlistmentHub({
 }: EnlistmentHubProps) {
   const [products, setProducts] = useState<EnlistmentProduct[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [isPartnerView, setIsPartnerView] = useState(initialIsPartnerView)
 
   // Filters & Search
@@ -73,11 +74,14 @@ export default function EnlistmentHub({
 
   async function loadData() {
     setLoading(true)
+    setError(null)
     try {
       const items = await getEnlistmentProducts()
       setProducts(items)
-    } catch (err) {
-      console.error('Failed to load enlistment products:', err)
+    } catch (err: any) {
+      console.error('Failed to load enlistment products from database:', err)
+      setError(err?.message || 'Failed to load products from database')
+      setProducts([])
     } finally {
       setLoading(false)
     }
@@ -169,25 +173,38 @@ export default function EnlistmentHub({
 
   // CRUD Handlers
   async function handleSaveProduct(formData: EnlistmentInput, id?: string) {
-    if (id) {
-      const updated = await updateEnlistmentProduct(id, formData)
-      setProducts((prev) => prev.map((p) => (p.id === id ? updated : p)))
-    } else {
-      const created = await createEnlistmentProduct(formData)
-      setProducts((prev) => [created, ...prev])
+    try {
+      if (id) {
+        const updated = await updateEnlistmentProduct(id, formData)
+        setProducts((prev) => prev.map((p) => (p.id === id ? updated : p)))
+      } else {
+        const created = await createEnlistmentProduct(formData)
+        setProducts((prev) => [created, ...prev])
+      }
+    } catch (err: any) {
+      alert(`Database operation failed: ${err.message || err}`)
+      throw err
     }
   }
 
   async function handleDeleteProduct(id: string, name: string) {
-    if (confirm(`Are you sure you want to remove "${name}" from the enlistment pipeline?`)) {
-      await deleteEnlistmentProduct(id)
-      setProducts((prev) => prev.filter((p) => p.id !== id))
+    if (confirm(`Are you sure you want to remove "${name}" from the database?`)) {
+      try {
+        await deleteEnlistmentProduct(id)
+        setProducts((prev) => prev.filter((p) => p.id !== id))
+      } catch (err: any) {
+        alert(`Database delete failed: ${err.message || err}`)
+      }
     }
   }
 
   async function handleQuickStatusChange(id: string, newStatus: any) {
-    const updated = await updateEnlistmentProduct(id, { enlistment_status: newStatus })
-    setProducts((prev) => prev.map((p) => (p.id === id ? updated : p)))
+    try {
+      const updated = await updateEnlistmentProduct(id, { enlistment_status: newStatus })
+      setProducts((prev) => prev.map((p) => (p.id === id ? updated : p)))
+    } catch (err: any) {
+      alert(`Database update failed: ${err.message || err}`)
+    }
   }
 
   return (
@@ -459,17 +476,64 @@ export default function EnlistmentHub({
         </div>
       </div>
 
+      {/* Database Error Banner */}
+      {error && (
+        <div
+          className="card"
+          style={{
+            padding: '16px 20px',
+            marginBottom: '20px',
+            background: 'rgba(239, 68, 68, 0.08)',
+            border: '1px solid rgba(239, 68, 68, 0.25)',
+            borderRadius: 8,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+            <AlertCircle size={20} style={{ color: '#ef4444', flexShrink: 0, marginTop: 2 }} />
+            <div>
+              <div style={{ fontWeight: 600, color: '#f87171', marginBottom: 4 }}>
+                Database Error: {error}
+              </div>
+              <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.5 }}>
+                Please ensure the table <code style={{ color: '#93c5fd' }}>product_enlistments</code> is created in your Supabase project. You can run the SQL script in <code style={{ color: '#93c5fd' }}>supabase/008_product_enlistments.sql</code> in the Supabase SQL Editor.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Main Content Area */}
       {loading ? (
         <div className="card loading-card">
           <div className="spinner" />
-          <div>Loading Product Enlistment Pipeline...</div>
+          <div>Loading Product Enlistment Pipeline from Database...</div>
+        </div>
+      ) : products.length === 0 ? (
+        <div className="card empty-panel" style={{ padding: '48px 24px', textAlign: 'center' }}>
+          <Layers size={40} className="text-muted" style={{ margin: '0 auto 16px' }} />
+          <h3>No products in database</h3>
+          <p style={{ color: 'var(--muted)', maxWidth: 480, margin: '8px auto 20px' }}>
+            There are currently no products registered in the database enlistment pipeline.
+          </p>
+          {!isPartnerView && (
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={() => {
+                setEditingProduct(null)
+                setIsAddEditOpen(true)
+              }}
+            >
+              <Plus size={15} style={{ marginRight: 6 }} />
+              Add Product to Database
+            </button>
+          )}
         </div>
       ) : filteredProducts.length === 0 ? (
         <div className="card empty-panel">
           <Layers size={36} className="text-muted" />
           <h3>No products match your filter criteria</h3>
-          <p>Try resetting filters or adding new items to the enlistment pipeline.</p>
+          <p>Try resetting filters or adjusting your search query.</p>
         </div>
       ) : viewMode === 'table' ? (
         /* SPREADSHEET TABLE VIEW: Exact 20 columns matching the user's specification sheet */
