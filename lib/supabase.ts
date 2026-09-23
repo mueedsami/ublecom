@@ -1,0 +1,6 @@
+import { createClient } from '@supabase/supabase-js'
+const url = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
+const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+export const configured = Boolean(url && key)
+export const supabase = configured ? createClient(url, key) : null
+export const demoMode = process.env.NEXT_PUBLIC_DEMO_MODE === 'true' || !configured

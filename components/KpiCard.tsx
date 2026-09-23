@@ -1,0 +1,1 @@
+export default function KpiCard({label,value,note,tone}:{label:string,value:string|number,note?:string,tone?:'green'|'red'|'amber'}){return <div className="card"><div className="kpi-label">{label}</div><div className={'kpi-value '+(tone||'')}>{value}</div>{note&&<div className="kpi-delta">{note}</div>}</div>}

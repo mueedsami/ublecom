@@ -1,0 +1,3 @@
+'use client'
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts'
+export default function Trend({data}:{data:any[]}){return <div style={{height:270}}><ResponsiveContainer width="100%" height="100%"><LineChart data={data}><CartesianGrid stroke="#26334f" vertical={false}/><XAxis dataKey="date" stroke="#7284a2" tick={{fontSize:10}}/><YAxis domain={[0,100]} stroke="#7284a2" tick={{fontSize:10}}/><Tooltip contentStyle={{background:'#111a2d',border:'1px solid #26334f',borderRadius:10}}/><Line type="monotone" dataKey="ola" stroke="#32d1c3" strokeWidth={3} dot={false}/></LineChart></ResponsiveContainer></div>}

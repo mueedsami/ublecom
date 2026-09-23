@@ -1,0 +1,1 @@
+export default function Header({eyebrow,title,subtitle}:{eyebrow:string,title:string,subtitle:string}){return <div className="topbar"><div><div className="eyebrow">{eyebrow}</div><h1 className="title">{title}</h1><p className="subtitle">{subtitle}</p></div><div><span className="pill">Manager view · live dashboard</span></div></div>}
