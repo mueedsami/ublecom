@@ -1,6 +1,11 @@
 
 import {demoMode,supabase} from './supabase'
 
+function relationName(relation:any){
+ const value=Array.isArray(relation)?relation[0]:relation
+ return value?.name
+}
+
 export async function searchStockProducts(q:string){
  if(demoMode||!supabase) return [
   {id:'demo1',basepack:'DOVE SHAMPOO INTENSIVE REPAIR 340ML',brand:'DOVE'},
@@ -52,8 +57,8 @@ for(const row of (data || [])){
    const d=row.snapshot_date
    if(!days.includes(d)) days.push(d)
 
-   const account=row.accounts?.name || 'Unknown'
-   const location=row.locations?.name
+  const account=relationName(row.accounts) || 'Unknown'
+  const location=relationName(row.locations)
    const key=location && location.toLowerCase().includes('pandamart')
        ? `${account} - ${location}`
        : account
@@ -64,8 +69,8 @@ for(const row of (data || [])){
  for(const key of Object.keys(map)){
    map[key].status=days.map(d=>{
      const found=(data||[]).find((r:any)=>{
-       const acc=r.accounts?.name || 'Unknown'
-       const loc=r.locations?.name
+      const acc=relationName(r.accounts) || 'Unknown'
+      const loc=relationName(r.locations)
        const k=loc && loc.toLowerCase().includes('pandamart')
         ? `${acc} - ${loc}`
         : acc
