@@ -1,6 +1,14 @@
 import Link from 'next/link'
-import { LayoutDashboard, PackageCheck, TrendingDown, Search, Bell, Boxes, Database } from 'lucide-react'
-const items=[['/','Overview',LayoutDashboard],['/availability','Availability',PackageCheck],['/stock','Stock Tracking',Boxes],['/price','Price / CPP',TrendingDown],['/search','Search / SoS',Search],['/alerts','Alerts',Bell]] as const
+import { LayoutDashboard, PackageCheck, CheckSquare, TrendingDown, Search, Bell, Boxes, Database } from 'lucide-react'
+const items=[
+  ['/','Overview',LayoutDashboard],
+  ['/availability','Availability',PackageCheck],
+  ['/checker','Shelf Checker',CheckSquare],
+  ['/stock','Stock Tracking',Boxes],
+  ['/price','Price / CPP',TrendingDown],
+  ['/search','Search / SoS',Search],
+  ['/alerts','Alerts',Bell]
+] as const
 // More Master Data routes (Products, Account Mapping, Import) land here as they're built.
 const masterItems=[['/master/basepacks','Basepacks',Database]] as const
 export default function AppShell({children}:{children:React.ReactNode}){return <div className="shell"><aside className="sidebar"><div className="brand"><b>UBL</b> Stock Intelligence system</div><nav className="nav">{items.map(([href,label,Icon])=><Link key={href} href={href}><Icon size={16} style={{verticalAlign:'middle',marginRight:8}}/>{label}</Link>)}<div style={{margin:'16px 0 6px',padding:'0 12px',fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:'.06em',color:'var(--muted)'}}>Master Data</div>{masterItems.map(([href,label,Icon])=><Link key={href} href={href}><Icon size={16} style={{verticalAlign:'middle',marginRight:8}}/>{label}</Link>)}</nav></aside><main className="main">{children}</main></div>}

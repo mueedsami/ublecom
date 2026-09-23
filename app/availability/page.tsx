@@ -1,5 +1,7 @@
 'use client'
 import {useEffect,useMemo,useState} from 'react'
+import Link from 'next/link'
+import { CheckSquare } from 'lucide-react'
 import Header from '@/components/Header'
 import Loading from '@/components/Loading'
 import OlaDailySummary from '@/components/OlaDailySummary'
@@ -57,10 +59,16 @@ export default function Page(){
     <Header eyebrow="Online Availability" title="Complete OLA Report" subtitle="Daily summary, week comparison and a modern interactive analysis workspace — directly from Supabase."/>
     <div className="report-topline"><span>{currentLabel}</span><span>View mode · no raw file required</span></div>
 
-    <div className="report-tabs" role="tablist">
-      <button className={tab==='daily'?'active':''} onClick={()=>setTab('daily')}>Daily Summary</button>
-      <button className={tab==='comparison'?'active':''} onClick={()=>setTab('comparison')}>Weekly Comparison</button>
-      <button className={tab==='explorer'?'active':''} onClick={()=>setTab('explorer')}>Analysis Explorer</button>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,flexWrap:'wrap',marginBottom:16}}>
+      <div className="report-tabs" role="tablist" style={{margin:0}}>
+        <button className={tab==='daily'?'active':''} onClick={()=>setTab('daily')}>Daily Summary</button>
+        <button className={tab==='comparison'?'active':''} onClick={()=>setTab('comparison')}>Weekly Comparison</button>
+        <button className={tab==='explorer'?'active':''} onClick={()=>setTab('explorer')}>Analysis Explorer</button>
+      </div>
+      <Link href="/checker" className="secondary-btn" style={{borderColor:'#34547e',background:'rgba(47,125,255,0.12)',color:'#8eb8ff',display:'inline-flex',alignItems:'center',gap:7,padding:'9px 13px',borderRadius:10}}>
+        <CheckSquare size={14}/>
+        <span>Open Shelf & SKU Checker →</span>
+      </Link>
     </div>
 
     {tab==='daily'&&<div className="report-toolbar">
