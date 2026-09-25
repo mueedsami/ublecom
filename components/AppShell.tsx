@@ -1,10 +1,11 @@
 import Link from 'next/link'
-import { LayoutDashboard, PackageCheck, CheckSquare, FileSpreadsheet, TrendingDown, Search, Bell, Boxes, Database } from 'lucide-react'
+import { LayoutDashboard, PackageCheck, CheckSquare, FileSpreadsheet, TrendingDown, Search, Bell, Boxes, Database, Store } from 'lucide-react'
 const items=[
   ['/','Overview',LayoutDashboard],
   ['/availability','Availability',PackageCheck],
   ['/checker','Shelf Checker',CheckSquare],
   ['/enlistment','Enlistment Hub',FileSpreadsheet],
+  ['/dh','Pandamart DH',Store],
   ['/stock','Stock Tracking',Boxes],
   ['/price','Price / CPP',TrendingDown],
   ['/search','Search / SoS',Search],
