@@ -298,107 +298,6 @@ export default function DhPage() {
         </div>
       )}
 
-      {/* KPI Cards Row */}
-      <div className="dh-kpis-grid">
-        <div className="card">
-          <div className="kpi-label">30-Day Pandamart GFV</div>
-          <div className="kpi-value text-teal">
-            ৳{((stats?.total_gfv_30d || 0) / 1000000).toFixed(2)}M
-          </div>
-          <div className="kpi-delta green">
-            ৳{(stats?.total_gfv_30d || 0).toLocaleString()} Total Sales
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="kpi-label">30-Day Units Sold</div>
-          <div className="kpi-value">
-            {(stats?.total_sold_30d || 0).toLocaleString()}
-          </div>
-          <div className="kpi-delta text-green">Across all branches</div>
-        </div>
-
-        <div className="card">
-          <div className="kpi-label">Total Network Stock</div>
-          <div className="kpi-value">
-            {(stats?.total_stock || 0).toLocaleString()}
-          </div>
-          <div className="kpi-delta" style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span>DC: {(stats?.dc_stock || 0).toLocaleString()}</span>
-            <span>Stores: {(stats?.branch_stock || 0).toLocaleString()}</span>
-          </div>
-        </div>
-
-        {/* Operational Flags Summary Card */}
-        <div
-          className="card dh-open-flags-kpi"
-          style={{
-            cursor: 'pointer',
-            borderLeft:
-              (flagsSummary?.critical_count || 0) > 0
-                ? '4px solid var(--red)'
-                : (flagsSummary?.warning_count || 0) > 0
-                ? '4px solid var(--amber)'
-                : '1px solid var(--border)',
-          }}
-          onClick={() => setActiveTab('flags')}
-          title="Click to view Operational Flags & Exceptions"
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div className="kpi-label">Operational Flags</div>
-            <AlertTriangle
-              size={15}
-              color={
-                (flagsSummary?.critical_count || 0) > 0
-                  ? 'var(--red)'
-                  : (flagsSummary?.warning_count || 0) > 0
-                  ? 'var(--amber)'
-                  : 'var(--green)'
-              }
-            />
-          </div>
-          <div
-            className="kpi-value"
-            style={{
-              color:
-                (flagsSummary?.critical_count || 0) > 0
-                  ? 'var(--red)'
-                  : (flagsSummary?.warning_count || 0) > 0
-                  ? 'var(--amber)'
-                  : 'var(--text)',
-            }}
-          >
-            {flagsSummary?.total_open || 0}
-          </div>
-          <div className="kpi-delta" style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span style={{ color: 'var(--red)', fontWeight: 700 }}>
-              {flagsSummary?.critical_count || 0} Crit
-            </span>
-            <span style={{ color: 'var(--amber)', fontWeight: 600 }}>
-              {flagsSummary?.warning_count || 0} Warn
-            </span>
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="kpi-label">Basepack Match Rate</div>
-          <div className="kpi-value" style={{ color: matchRate > 75 ? 'var(--green)' : 'var(--amber)' }}>
-            {matchRate}%
-          </div>
-          <div className="kpi-delta">
-            {stats?.matched_skus || 0} mapped / {stats?.unmatched_skus || 0} open
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="kpi-label">Network Dark Stores</div>
-          <div className="kpi-value text-blue">
-            {stats?.active_stores || 17}
-          </div>
-          <div className="kpi-delta text-teal">16 Branches + 1 Central DC</div>
-        </div>
-      </div>
-
       {/* Navigation Tabs */}
       <div className="dh-tabs">
         <button
@@ -480,9 +379,130 @@ export default function DhPage() {
             />
           )}
 
-          {/* TAB 1: ANALYTICS & STORE STOCK */}
+          {/* TAB 1: ANALYTICS & STORE STOCK (OVERVIEW) */}
           {activeTab === 'analytics' && (
-            <div style={{ display: 'grid', gap: 20 }}>
+            <div style={{ display: 'grid', gap: 22 }}>
+              {/* Grouped Executive KPIs: Business Volume vs System Health (§2) */}
+              <div className="dh-kpi-groups-container">
+                {/* 1. Business Volume Group */}
+                <div className="dh-kpi-group">
+                  <div className="dh-kpi-group-header">
+                    <span className="dh-kpi-group-tag">Business Volume</span>
+                    <span className="dh-kpi-group-hint">30-day top-line sales &amp; network stock depth</span>
+                  </div>
+                  <div className="dh-kpis-grid-3">
+                    <div className="card">
+                      <div className="kpi-label">30-Day Pandamart GFV</div>
+                      <div className="kpi-value text-teal">
+                        ৳{((stats?.total_gfv_30d || 0) / 1000000).toFixed(2)}M
+                      </div>
+                      <div className="kpi-delta green">
+                        ৳{(stats?.total_gfv_30d || 0).toLocaleString()} Total Sales
+                      </div>
+                    </div>
+
+                    <div className="card">
+                      <div className="kpi-label">30-Day Units Sold</div>
+                      <div className="kpi-value">
+                        {(stats?.total_sold_30d || 0).toLocaleString()}
+                      </div>
+                      <div className="kpi-delta text-green">Across all branches</div>
+                    </div>
+
+                    <div className="card">
+                      <div className="kpi-label">Total Network Stock</div>
+                      <div className="kpi-value">
+                        {(stats?.total_stock || 0).toLocaleString()}
+                      </div>
+                      <div className="kpi-delta" style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>DC: {(stats?.dc_stock || 0).toLocaleString()}</span>
+                        <span>Stores: {(stats?.branch_stock || 0).toLocaleString()}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. System Health Group */}
+                <div className="dh-kpi-group dh-kpi-group-health">
+                  <div className="dh-kpi-group-header">
+                    <span className="dh-kpi-group-tag health">System &amp; Network Health</span>
+                    <span className="dh-kpi-group-hint">Exceptions, SKU mapping coverage &amp; dark stores</span>
+                  </div>
+                  <div className="dh-kpis-grid-3">
+                    {/* Operational Flags Card - Compact Single Hero Number (§1) */}
+                    <div
+                      className="card dh-open-flags-kpi"
+                      style={{
+                        cursor: 'pointer',
+                        borderLeft:
+                          (flagsSummary?.critical_count || 0) > 0
+                            ? '4px solid var(--red)'
+                            : (flagsSummary?.warning_count || 0) > 0
+                            ? '4px solid var(--amber)'
+                            : '1px solid var(--border)',
+                      }}
+                      onClick={() => setActiveTab('flags')}
+                      title="Click to view Operational Flags & Exceptions"
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div className="kpi-label">Operational Flags</div>
+                        <AlertTriangle
+                          size={15}
+                          color={
+                            (flagsSummary?.critical_count || 0) > 0
+                              ? 'var(--red)'
+                              : (flagsSummary?.warning_count || 0) > 0
+                              ? 'var(--amber)'
+                              : 'var(--green)'
+                          }
+                        />
+                      </div>
+                      <div
+                        className="kpi-value"
+                        style={{
+                          color:
+                            (flagsSummary?.critical_count || 0) > 0
+                              ? 'var(--red)'
+                              : (flagsSummary?.warning_count || 0) > 0
+                              ? 'var(--amber)'
+                              : 'var(--text)',
+                        }}
+                      >
+                        {flagsSummary?.total_open || 0}
+                      </div>
+                      <div
+                        className="kpi-delta"
+                        style={{
+                          color: (flagsSummary?.critical_count || 0) > 0 ? 'var(--red)' : 'var(--muted)',
+                          fontWeight: 600,
+                        }}
+                      >
+                        {(flagsSummary?.total_open || 0) > 0
+                          ? 'Click to triage exceptions →'
+                          : 'All systems healthy'}
+                      </div>
+                    </div>
+
+                    <div className="card">
+                      <div className="kpi-label">Basepack Match Rate</div>
+                      <div className="kpi-value" style={{ color: matchRate > 75 ? 'var(--green)' : 'var(--amber)' }}>
+                        {matchRate}%
+                      </div>
+                      <div className="kpi-delta">
+                        {stats?.matched_skus || 0} mapped / {stats?.unmatched_skus || 0} open
+                      </div>
+                    </div>
+
+                    <div className="card">
+                      <div className="kpi-label">Network Dark Stores</div>
+                      <div className="kpi-value text-blue">
+                        {stats?.active_stores || 17}
+                      </div>
+                      <div className="kpi-delta text-teal">16 Branches + 1 Central DC</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
               {/* Sales & Revenue Trend Chart */}
               <div className="card dh-chart-card">
                 <div className="dh-chart-header">

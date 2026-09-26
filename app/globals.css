@@ -2438,4 +2438,395 @@
   }
 }
 
+/* ==========================================================================
+   DH Dashboard Declutter Plan Styles
+   ========================================================================== */
+
+/* 1. Grouped Executive KPIs */
+.dh-kpi-groups-container {
+  display: grid;
+  gap: 18px;
+}
+
+.dh-kpi-group {
+  display: grid;
+  gap: 8px;
+}
+
+.dh-kpi-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px;
+}
+
+.dh-kpi-group-tag {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #8fa4c7;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dh-kpi-group-tag.health {
+  color: var(--teal);
+}
+
+.dh-kpi-group-hint {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.dh-kpis-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.dh-kpi-group-health .card {
+  background: linear-gradient(180deg, rgba(16, 26, 46, 0.95), rgba(12, 19, 34, 0.95));
+  border-color: rgba(47, 84, 133, 0.35);
+}
+
+/* 2. Compact Store Heat-Strip */
+.dh-store-heatstrip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.dh-heatstrip-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 11px;
+  background: #0d1527;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 11px;
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.dh-heatstrip-pill:hover {
+  border-color: #3b5075;
+  background: #14223d;
+  transform: translateY(-1px);
+}
+
+.dh-heatstrip-pill.selected {
+  border-color: var(--teal);
+  background: rgba(50, 209, 195, 0.15);
+  box-shadow: 0 0 10px rgba(50, 209, 195, 0.25);
+}
+
+.dh-heatstrip-pill.critical {
+  border-color: rgba(255, 102, 115, 0.35);
+}
+
+.dh-heatstrip-pill.critical .dh-heatstrip-pct {
+  color: var(--red);
+  font-weight: 800;
+}
+
+.dh-heatstrip-pill.warning {
+  border-color: rgba(255, 191, 75, 0.3);
+}
+
+.dh-heatstrip-pill.warning .dh-heatstrip-pct {
+  color: var(--amber);
+  font-weight: 700;
+}
+
+.dh-heatstrip-pill.normal .dh-heatstrip-pct {
+  color: var(--green);
+  font-weight: 600;
+}
+
+.dh-heatstrip-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dh-heatstrip-dot.critical {
+  background: var(--red);
+  box-shadow: 0 0 6px rgba(255, 102, 115, 0.7);
+}
+
+.dh-heatstrip-dot.warning {
+  background: var(--amber);
+  box-shadow: 0 0 6px rgba(255, 191, 75, 0.7);
+}
+
+.dh-heatstrip-dot.normal {
+  background: var(--green);
+  box-shadow: 0 0 6px rgba(68, 209, 122, 0.7);
+}
+
+.dh-heatstrip-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: #d8e5f7;
+}
+
+.dh-heatstrip-pct {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 3. Refined Filter Bar */
+.dh-filter-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.dh-filter-search-row {
+  width: 100%;
+}
+
+.dh-filter-controls-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.dh-filter-groups {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.dh-filter-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dh-filter-group-label {
+  font-size: 11px;
+  font-weight: 800;
+  color: #7d90af;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.dh-filter-divider {
+  width: 1px;
+  height: 22px;
+  background: var(--border);
+}
+
+.dh-filter-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.dh-filter-status-row {
+  padding-top: 6px;
+  border-top: 1px solid rgba(38, 51, 79, 0.45);
+}
+
+/* 4. Merged Flag Badge */
+.dh-merged-badge-wrap {
+  display: inline-block;
+  cursor: help;
+}
+
+.dh-merged-flag-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  white-space: nowrap;
+  width: fit-content;
+  letter-spacing: 0.02em;
+  transition: transform 0.1s ease;
+}
+
+.dh-merged-flag-badge:hover {
+  transform: scale(1.02);
+}
+
+.dh-merged-flag-badge.critical {
+  background: rgba(255, 102, 115, 0.14);
+  color: var(--red);
+  border: 1px solid rgba(255, 102, 115, 0.35);
+}
+
+.dh-merged-flag-badge.warning {
+  background: rgba(255, 191, 75, 0.14);
+  color: var(--amber);
+  border: 1px solid rgba(255, 191, 75, 0.35);
+}
+
+.dh-merged-flag-badge.info {
+  background: rgba(47, 125, 255, 0.14);
+  color: #88b6ff;
+  border: 1px solid rgba(47, 125, 255, 0.28);
+}
+
+.dh-badge-sev {
+  text-transform: uppercase;
+  font-weight: 800;
+  font-size: 9.5px;
+  letter-spacing: 0.05em;
+}
+
+.dh-badge-dot {
+  opacity: 0.5;
+}
+
+.dh-badge-type {
+  font-weight: 700;
+}
+
+/* 5. Product & SKU / Basepack 2-Line Cell */
+.dh-product-cell {
+  display: grid;
+  gap: 3px;
+}
+
+.dh-product-name {
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.35;
+}
+
+.dh-product-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--muted);
+  flex-wrap: wrap;
+}
+
+.dh-sku-mono {
+  font-family: monospace;
+  font-size: 10px;
+  color: #8fa4c7;
+  background: rgba(14, 23, 42, 0.85);
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(47, 84, 133, 0.3);
+}
+
+.dh-meta-sep {
+  color: #435472;
+}
+
+.dh-basepack-mapped {
+  color: var(--teal);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.dh-unmatched-text {
+  color: #ff9f43;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* 6. Aligned Spreadsheet-Like Metrics Grid */
+.dh-metrics-aligned-grid {
+  display: grid;
+  grid-template-columns: 60px 80px 90px 90px;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.dh-metric-col {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dh-col-lbl {
+  font-size: 9.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #6d80a0;
+}
+
+.dh-col-val {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #e2edfd;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.dh-col-sub {
+  font-size: 9.5px;
+  color: #8ec5fc;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 7. Static Trend Column Indicator */
+.dh-no-sparkline-indicator {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  opacity: 0.8;
+  cursor: help;
+  padding: 4px 0;
+}
+
+.dh-no-chart-label {
+  font-size: 9px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 700;
+}
+
+/* 8. Expandable Row Diagnostic Box */
+.dh-flag-detail-row td {
+  background: rgba(14, 23, 42, 0.7);
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.dh-flag-detail-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 12px;
+  color: #cbdcf4;
+  line-height: 1.45;
+}
+
+@media (max-width: 860px) {
+  .dh-kpis-grid-3 {
+    grid-template-columns: 1fr;
+  }
+  .dh-filter-controls-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .dh-filter-actions {
+    margin-left: 0;
+    justify-content: flex-end;
+  }
+}
+
+
 
