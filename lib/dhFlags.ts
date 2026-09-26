@@ -766,6 +766,7 @@ export async function getDhFlags(options?: {
   severity?: DhFlagSeverity | 'all'
   flagType?: DhFlagType | 'all'
   search?: string
+  store?: string
 }): Promise<{
   flags: DhFlag[]
   summary: DhFlagsSummary
@@ -785,6 +786,16 @@ export async function getDhFlags(options?: {
     }
     if (options?.flagType && options.flagType !== 'all') {
       filtered = filtered.filter(f => f.flag_type === options.flagType)
+    }
+    if (options?.store && options.store.trim()) {
+      const st = options.store.toLowerCase().trim()
+      filtered = filtered.filter(
+        f =>
+          f.dh_store_id === options.store ||
+          f.store?.id === options.store ||
+          f.store?.store_code?.toLowerCase() === st ||
+          f.store?.display_name?.toLowerCase().includes(st)
+      )
     }
     if (options?.search && options.search.trim()) {
       const q = options.search.toLowerCase().trim()
@@ -896,6 +907,16 @@ export async function getDhFlags(options?: {
     const computed = await computeDhFlags(supabase)
 
     let filtered = formatted
+    if (options?.store && options.store.trim()) {
+      const st = options.store.toLowerCase().trim()
+      filtered = filtered.filter(
+        f =>
+          f.dh_store_id === options.store ||
+          f.store?.id === options.store ||
+          f.store?.store_code?.toLowerCase() === st ||
+          f.store?.display_name?.toLowerCase().includes(st)
+      )
+    }
     if (options?.search && options.search.trim()) {
       const q = options.search.toLowerCase().trim()
       filtered = filtered.filter(

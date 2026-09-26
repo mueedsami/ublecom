@@ -2827,6 +2827,33 @@
     justify-content: flex-end;
   }
 }
+/* DH Flags Export Download Dropdown */
+.dh-download-btn {
+  font-weight: 600;
+  transition: all 0.15s ease;
+}
 
+.dh-download-btn:hover:not(:disabled) {
+  border-color: rgba(47, 125, 255, 0.45);
+  background: rgba(47, 125, 255, 0.12);
+  color: #fff;
+}
 
+.dh-download-popover {
+  animation: fadeInDown 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
 
+@keyframes fadeInDown {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.dh-download-menu-item:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.05) !important;
+}

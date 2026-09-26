@@ -24,6 +24,7 @@ import {
 } from 'lucide-react'
 import { ResponsiveContainer, LineChart, Line, Tooltip } from 'recharts'
 import { DhFlag, DhFlagsSummary, DhFlagSeverity, DhFlagType, DhFlagStatus } from '@/lib/dhFlags'
+import FlagsDownloadMenu from './dh/FlagsDownloadMenu'
 
 interface DhFlagsTabProps {
   flags: DhFlag[]
@@ -500,6 +501,15 @@ export default function DhFlagsTab({
             )}
 
             <div className="dh-filter-divider" />
+
+            <FlagsDownloadMenu
+              severity={severityFilter}
+              flagType={typeFilter}
+              status={statusFilter}
+              store={selectedStore}
+              searchQuery={searchQuery}
+              totalCount={filteredFlags.length}
+            />
 
             <button
               className="secondary-btn"
