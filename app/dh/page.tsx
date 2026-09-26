@@ -33,6 +33,7 @@ import {
   AlertTriangle,
   Building2,
   ExternalLink,
+  ShieldAlert,
 } from 'lucide-react'
 import {
   ResponsiveContainer,
@@ -44,12 +45,28 @@ import {
   CartesianGrid,
   Legend,
 } from 'recharts'
+import DhFlagsTab from '@/components/DhFlagsTab'
+import {
+  DhFlag,
+  DhFlagsSummary,
+  DhFlagStatus,
+  getDhFlags,
+  updateDhFlagStatus,
+  generateDhFlagsPass,
+  checkDhFlagsSchemaInstalled,
+} from '@/lib/dhFlags'
 
 export default function DhPage() {
-  const [activeTab, setActiveTab] = useState<'analytics' | 'tagging' | 'import'>('analytics')
+  const [activeTab, setActiveTab] = useState<'analytics' | 'flags' | 'tagging' | 'import'>('analytics')
   const [stats, setStats] = useState<DhSummaryStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  // Flags Tab State
+  const [flags, setFlags] = useState<DhFlag[]>([])
+  const [flagsSummary, setFlagsSummary] = useState<DhFlagsSummary | null>(null)
+  const [flagsLoading, setFlagsLoading] = useState(false)
+  const [isFlagsSchemaInstalled, setIsFlagsSchemaInstalled] = useState(true)
 
   // Analytics Tab State
   const [salesTrend, setSalesTrend] = useState<DhSalesTrendPoint[]>([])
@@ -77,21 +94,56 @@ export default function DhPage() {
     setLoading(true)
     setError(null)
     try {
-      const [sData, trendData, matrixData, catData] = await Promise.all([
+      const [sData, trendData, matrixData, catData, flagsData, flagsInstalled] = await Promise.all([
         getDhSummaryStats(),
         getDhSalesTrend(),
         getDhStockMatrix(),
         listDhCatalog({ status: catalogFilter === 'all' ? undefined : catalogFilter }),
+        getDhFlags(),
+        checkDhFlagsSchemaInstalled(),
       ])
       setStats(sData)
       setSalesTrend(trendData)
       setStockMatrix(matrixData)
       setCatalog(catData)
+      setFlags(flagsData.flags)
+      setFlagsSummary(flagsData.summary)
+      setIsFlagsSchemaInstalled(flagsInstalled)
     } catch (err: any) {
       console.error(err)
       setError(err.message || 'Failed to load Pandamart DH data')
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function handleRefreshFlags() {
+    setFlagsLoading(true)
+    try {
+      await generateDhFlagsPass()
+      const res = await getDhFlags()
+      setFlags(res.flags)
+      setFlagsSummary(res.summary)
+    } catch (err: any) {
+      console.error('Error refreshing flags:', err)
+    } finally {
+      setFlagsLoading(false)
+    }
+  }
+
+  async function handleUpdateFlagStatus(flagId: string, status: DhFlagStatus) {
+    try {
+      await updateDhFlagStatus(flagId, status)
+      // Optimistically update local flag
+      setFlags(prev =>
+        prev.map(f => (f.id === flagId ? { ...f, status, resolved_at: status === 'resolved' ? new Date().toISOString() : null } : f))
+      )
+      // Re-fetch to synchronize counters
+      const res = await getDhFlags()
+      setFlags(res.flags)
+      setFlagsSummary(res.summary)
+    } catch (err: any) {
+      console.error('Error updating flag status:', err)
     }
   }
 
@@ -223,6 +275,29 @@ export default function DhPage() {
         </div>
       )}
 
+      {/* Migration Notice Banner for dh_flags if not yet applied in Supabase */}
+      {!isFlagsSchemaInstalled && (
+        <div className="dh-banner-schema" style={{ borderColor: 'rgba(47,125,255,.4)', background: 'linear-gradient(90deg, rgba(47,125,255,.12), rgba(18,26,45,.95))' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <AlertTriangle color="#ffbf4b" size={24} style={{ flexShrink: 0 }} />
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 13, color: '#ffd071' }}>
+                Flags Schema Migration: <code>supabase/010_dh_flags.sql</code>
+              </div>
+              <div style={{ fontSize: 12, color: '#c7d6eb', marginTop: 3 }}>
+                Table <code>dh_flags</code> is not yet applied in your database. Currently computing active operational flags on the fly from daily stock and sales snapshots. Run the migration to persist history, audit trails, and mirror alerts into the central <code>/alerts</code> feed.
+              </div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+              Run in Supabase SQL Editor:
+            </span>
+            <code>supabase/010_dh_flags.sql</code>
+          </div>
+        </div>
+      )}
+
       {/* KPI Cards Row */}
       <div className="dh-kpis-grid">
         <div className="card">
@@ -254,6 +329,57 @@ export default function DhPage() {
           </div>
         </div>
 
+        {/* Operational Flags Summary Card */}
+        <div
+          className="card dh-open-flags-kpi"
+          style={{
+            cursor: 'pointer',
+            borderLeft:
+              (flagsSummary?.critical_count || 0) > 0
+                ? '4px solid var(--red)'
+                : (flagsSummary?.warning_count || 0) > 0
+                ? '4px solid var(--amber)'
+                : '1px solid var(--border)',
+          }}
+          onClick={() => setActiveTab('flags')}
+          title="Click to view Operational Flags & Exceptions"
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div className="kpi-label">Operational Flags</div>
+            <AlertTriangle
+              size={15}
+              color={
+                (flagsSummary?.critical_count || 0) > 0
+                  ? 'var(--red)'
+                  : (flagsSummary?.warning_count || 0) > 0
+                  ? 'var(--amber)'
+                  : 'var(--green)'
+              }
+            />
+          </div>
+          <div
+            className="kpi-value"
+            style={{
+              color:
+                (flagsSummary?.critical_count || 0) > 0
+                  ? 'var(--red)'
+                  : (flagsSummary?.warning_count || 0) > 0
+                  ? 'var(--amber)'
+                  : 'var(--text)',
+            }}
+          >
+            {flagsSummary?.total_open || 0}
+          </div>
+          <div className="kpi-delta" style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span style={{ color: 'var(--red)', fontWeight: 700 }}>
+              {flagsSummary?.critical_count || 0} Crit
+            </span>
+            <span style={{ color: 'var(--amber)', fontWeight: 600 }}>
+              {flagsSummary?.warning_count || 0} Warn
+            </span>
+          </div>
+        </div>
+
         <div className="card">
           <div className="kpi-label">Basepack Match Rate</div>
           <div className="kpi-value" style={{ color: matchRate > 75 ? 'var(--green)' : 'var(--amber)' }}>
@@ -280,14 +406,37 @@ export default function DhPage() {
           onClick={() => setActiveTab('analytics')}
         >
           <BarChart3 size={16} />
-          Sales & Store Stock
+          Sales &amp; Store Stock
         </button>
+
+        <button
+          className={`dh-tab-btn ${activeTab === 'flags' ? 'active' : ''}`}
+          onClick={() => setActiveTab('flags')}
+        >
+          <ShieldAlert size={16} />
+          Flags &amp; Exceptions
+          {flagsSummary && flagsSummary.total_open > 0 && (
+            <span
+              style={{
+                background: flagsSummary.critical_count > 0 ? 'rgba(255,102,115,.25)' : 'rgba(255,191,75,.25)',
+                color: flagsSummary.critical_count > 0 ? '#ff8a94' : '#ffd071',
+                padding: '2px 7px',
+                borderRadius: 999,
+                fontSize: 10,
+                fontWeight: 900,
+              }}
+            >
+              {flagsSummary.total_open} open
+            </span>
+          )}
+        </button>
+
         <button
           className={`dh-tab-btn ${activeTab === 'tagging' ? 'active' : ''}`}
           onClick={() => setActiveTab('tagging')}
         >
           <Tag size={16} />
-          Catalog & Tagging Hub
+          Catalog &amp; Tagging Hub
           {stats && stats.unmatched_skus > 0 && (
             <span
               style={{
@@ -308,7 +457,7 @@ export default function DhPage() {
           onClick={() => setActiveTab('import')}
         >
           <UploadCloud size={16} />
-          Daily Upload & Ingest
+          Daily Upload &amp; Ingest
         </button>
       </div>
 
@@ -320,6 +469,17 @@ export default function DhPage() {
         </div>
       ) : (
         <>
+          {/* TAB: OPERATIONAL FLAGS */}
+          {activeTab === 'flags' && flagsSummary && (
+            <DhFlagsTab
+              flags={flags}
+              summary={flagsSummary}
+              loading={flagsLoading}
+              onRefresh={handleRefreshFlags}
+              onUpdateStatus={handleUpdateFlagStatus}
+            />
+          )}
+
           {/* TAB 1: ANALYTICS & STORE STOCK */}
           {activeTab === 'analytics' && (
             <div style={{ display: 'grid', gap: 20 }}>

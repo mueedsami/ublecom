@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import * as XLSX from 'xlsx'
+import { computeDhFlags, persistDhFlags } from '@/lib/dhFlags'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60 // Allow longer processing for large Excel files
@@ -292,6 +293,23 @@ export async function POST(req: NextRequest) {
       stockUpserted += batch.length
     }
 
+    // 6. Automated DH flagging pass
+    let flagsSummary: any = null
+    try {
+      const computed = await computeDhFlags(supabase)
+      const persistRes = await persistDhFlags(supabase, computed.flags)
+      flagsSummary = {
+        total_flags: computed.flags.length,
+        critical_count: computed.summary.critical_count,
+        warning_count: computed.summary.warning_count,
+        upserted_count: persistRes.upsertedCount,
+        resolved_count: persistRes.resolvedCount,
+        mirrored_alerts: persistRes.mirroredAlertsCount,
+      }
+    } catch (flagErr) {
+      console.warn('Flag generation pass error after import:', flagErr)
+    }
+
     return NextResponse.json({
       success: true,
       summary: {
@@ -301,6 +319,7 @@ export async function POST(req: NextRequest) {
         sales_records_upserted: salesUpserted,
         stock_records_upserted: stockUpserted,
         active_stores_count: storeCols.length,
+        flags: flagsSummary,
       },
     })
   } catch (err: any) {

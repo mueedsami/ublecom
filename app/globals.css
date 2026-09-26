@@ -2047,4 +2047,395 @@
   }
 }
 
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+/* ==========================================================================
+   DH Stock/Sales Operational Flags System Styles
+   ========================================================================== */
+
+.dh-flag-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.dh-flag-kpi-card {
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.dh-flag-kpi-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.28);
+}
+
+.dh-flag-kpi-card.selected {
+  outline: 2px solid var(--blue);
+  background: linear-gradient(180deg, rgba(35, 48, 77, 0.98), rgba(20, 30, 52, 0.98));
+}
+
+.dh-flag-icon-badge {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+.dh-flag-icon-badge.red {
+  background: rgba(255, 102, 115, 0.14);
+  border: 1px solid rgba(255, 102, 115, 0.25);
+}
+
+.dh-flag-icon-badge.amber {
+  background: rgba(255, 191, 75, 0.14);
+  border: 1px solid rgba(255, 191, 75, 0.25);
+}
+
+.dh-flag-icon-badge.blue {
+  background: rgba(47, 125, 255, 0.14);
+  border: 1px solid rgba(47, 125, 255, 0.25);
+}
+
+.dh-flag-icon-badge.green {
+  background: rgba(68, 209, 122, 0.14);
+  border: 1px solid rgba(68, 209, 122, 0.25);
+}
+
+.dh-flag-types-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.dh-flag-type-pill {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: #0e172a;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s ease;
+  width: 100%;
+}
+
+.dh-flag-type-pill:hover {
+  background: #14223d;
+  border-color: #3b5075;
+  transform: translateY(-1px);
+}
+
+.dh-flag-type-pill.active {
+  background: #1b2e50;
+  border-color: var(--teal);
+  box-shadow: 0 0 12px rgba(50, 209, 195, 0.15);
+}
+
+.dh-flag-type-pill-icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.dh-flag-type-pill-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.dh-flag-type-pill-body .type-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dh-flag-type-pill-body .type-count {
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.dh-store-health-gauge {
+  transition: all 0.15s ease;
+}
+
+.dh-store-health-gauge:hover {
+  border-color: #3f5d87;
+  transform: translateY(-2px);
+}
+
+.dh-store-health-gauge.selected {
+  border-color: var(--teal);
+  background: #15233c;
+  box-shadow: 0 0 14px rgba(50, 209, 195, 0.2);
+}
+
+.dh-flag-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.dh-flag-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.dh-flag-table th {
+  padding: 12px 14px;
+  text-align: left;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  background: #0d1527;
+  font-weight: 700;
+}
+
+.dh-flag-table td {
+  padding: 13px 14px;
+  border-bottom: 1px solid rgba(38, 51, 79, 0.7);
+  vertical-align: top;
+}
+
+.dh-flag-table-row {
+  transition: background 0.15s ease;
+}
+
+.dh-flag-table-row:hover {
+  background: rgba(47, 125, 255, 0.05);
+}
+
+.dh-flag-table-row.row-critical {
+  background: rgba(255, 102, 115, 0.03);
+}
+
+.dh-flag-table-row.row-critical:hover {
+  background: rgba(255, 102, 115, 0.07);
+}
+
+.dh-flag-severity-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  width: fit-content;
+}
+
+.dh-flag-severity-pill.critical {
+  background: rgba(255, 102, 115, 0.16);
+  color: var(--red);
+  border: 1px solid rgba(255, 102, 115, 0.35);
+}
+
+.dh-flag-severity-pill.warning {
+  background: rgba(255, 191, 75, 0.16);
+  color: var(--amber);
+  border: 1px solid rgba(255, 191, 75, 0.35);
+}
+
+.dh-flag-severity-pill.info {
+  background: rgba(47, 125, 255, 0.14);
+  color: #88b6ff;
+  border: 1px solid rgba(47, 125, 255, 0.28);
+}
+
+.dh-flag-type-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  width: fit-content;
+}
+
+.sku-code-pill {
+  font-family: monospace;
+  font-size: 10px;
+  color: #8fa4c7;
+  background: #091222;
+  padding: 2px 6px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+}
+
+.dh-matched-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: var(--teal);
+  background: rgba(50, 209, 195, 0.12);
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid rgba(50, 209, 195, 0.25);
+  font-weight: 700;
+}
+
+.dh-unmatched-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: #ff9f43;
+  background: rgba(255, 159, 67, 0.12);
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px dashed rgba(255, 159, 67, 0.35);
+  font-weight: 700;
+}
+
+.dh-flag-metric-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.metric-chip {
+  font-size: 11px;
+  background: #0c1426;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 7px;
+  color: #c9d8ee;
+}
+
+.metric-chip b {
+  color: #fff;
+}
+
+.dh-flag-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: capitalize;
+  padding: 3px 8px;
+  border-radius: 999px;
+}
+
+.dh-flag-status-pill.open {
+  background: rgba(255, 102, 115, 0.12);
+  color: #ff7d88;
+}
+
+.dh-flag-status-pill.acknowledged {
+  background: rgba(255, 191, 75, 0.14);
+  color: var(--amber);
+}
+
+.dh-flag-status-pill.resolved {
+  background: rgba(68, 209, 122, 0.14);
+  color: var(--green);
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.status-dot.red {
+  background: var(--red);
+  box-shadow: 0 0 6px rgba(255, 102, 115, 0.6);
+}
+
+.status-dot.amber {
+  background: var(--amber);
+  box-shadow: 0 0 6px rgba(255, 191, 75, 0.6);
+}
+
+.dh-flag-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 9px;
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: #111a2d;
+  color: var(--text);
+  transition: all 0.15s ease;
+}
+
+.dh-flag-action-btn:hover {
+  transform: translateY(-1px);
+}
+
+.dh-flag-action-btn.ack {
+  color: var(--amber);
+  border-color: rgba(255, 191, 75, 0.35);
+}
+
+.dh-flag-action-btn.ack:hover {
+  background: rgba(255, 191, 75, 0.15);
+}
+
+.dh-flag-action-btn.resolve {
+  color: var(--green);
+  border-color: rgba(68, 209, 122, 0.35);
+}
+
+.dh-flag-action-btn.resolve:hover {
+  background: rgba(68, 209, 122, 0.15);
+}
+
+.dh-open-flags-kpi:hover {
+  border-color: #3b5075;
+  transform: translateY(-2px);
+}
+
+@media (max-width: 980px) {
+  .dh-flag-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .dh-flag-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+  .dh-flag-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
 
