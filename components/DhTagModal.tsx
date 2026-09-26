@@ -186,8 +186,8 @@ export default function DhTagModal({
         </div>
 
         {/* Modal actions */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginTop: 10, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
-          <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginTop: 10, paddingTop: 14, borderTop: '1px solid var(--border)', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button
               type="button"
               className="ghost-btn"
@@ -213,7 +213,7 @@ export default function DhTagModal({
             )}
           </div>
 
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button type="button" className="ghost-btn" onClick={onClose} disabled={saving}>
               Cancel
             </button>

@@ -201,9 +201,20 @@ export async function POST(req: NextRequest) {
 
       let saleDate = ''
       if (r[saleDateCol] instanceof Date) {
-        saleDate = r[saleDateCol].toISOString().slice(0, 10)
+        // Add 12 hours to safely absorb timezone/leap-second offset and avoid date shifting
+        const adjusted = new Date(r[saleDateCol].getTime() + 12 * 3600 * 1000)
+        saleDate = adjusted.toISOString().slice(0, 10)
       } else if (typeof r[saleDateCol] === 'string') {
-        saleDate = r[saleDateCol].slice(0, 10)
+        const clean = cleanText(r[saleDateCol])
+        if (/^\d{4}-\d{2}-\d{2}/.test(clean)) {
+          saleDate = clean.slice(0, 10)
+        } else if (/^\d{1,2}\/\d{1,2}\/\d{2,4}/.test(clean)) {
+          const parts = clean.split(/[\/\s]/)[0].split('/')
+          if (parts[2].length === 2) parts[2] = '20' + parts[2]
+          saleDate = `${parts[2]}-${parts[0].padStart(2, '0')}-${parts[1].padStart(2, '0')}`
+        } else {
+          saleDate = clean.slice(0, 10)
+        }
       }
       if (!saleDate) continue
 
@@ -238,9 +249,19 @@ export async function POST(req: NextRequest) {
 
       let stockDate = ''
       if (r[stockDateCol] instanceof Date) {
-        stockDate = r[stockDateCol].toISOString().slice(0, 10)
+        const adjusted = new Date(r[stockDateCol].getTime() + 12 * 3600 * 1000)
+        stockDate = adjusted.toISOString().slice(0, 10)
       } else if (typeof r[stockDateCol] === 'string') {
-        stockDate = r[stockDateCol].slice(0, 10)
+        const clean = cleanText(r[stockDateCol])
+        if (/^\d{4}-\d{2}-\d{2}/.test(clean)) {
+          stockDate = clean.slice(0, 10)
+        } else if (/^\d{1,2}\/\d{1,2}\/\d{2,4}/.test(clean)) {
+          const parts = clean.split(/[\/\s]/)[0].split('/')
+          if (parts[2].length === 2) parts[2] = '20' + parts[2]
+          stockDate = `${parts[2]}-${parts[0].padStart(2, '0')}-${parts[1].padStart(2, '0')}`
+        } else {
+          stockDate = clean.slice(0, 10)
+        }
       }
       if (!stockDate) continue
 

@@ -91,6 +91,27 @@ export async function listDhStores(): Promise<DhStore[]> {
   return data || []
 }
 
+async function fetchAllPages<T>(
+  queryFn: (from: number, to: number) => PromiseLike<{ data: any; error: any }>,
+  pageSize = 1000
+): Promise<T[]> {
+  const allRows: T[] = []
+  let from = 0
+  while (true) {
+    const res = await queryFn(from, from + pageSize - 1)
+    if (res.error) {
+      console.warn('Pagination query error:', res.error)
+      break
+    }
+    const data = res.data as T[] | null
+    if (!data || data.length === 0) break
+    allRows.push(...data)
+    if (data.length < pageSize) break
+    from += pageSize
+  }
+  return allRows
+}
+
 export async function getDhSummaryStats(): Promise<DhSummaryStats> {
   const isInstalled = await checkDhSchemaInstalled()
   if (!isInstalled || !supabase) {
@@ -116,18 +137,34 @@ export async function getDhSummaryStats(): Promise<DhSummaryStats> {
       else unmatched_skus++
     }
 
-    // 2. Sales last 30d sum
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
-    const { data: sales, error: salesErr } = await supabase
+    // 2. Sales last 30d sum (anchored to latest available sale_date to handle uploaded datasets)
+    const { data: latestSaleDateRow } = await supabase
       .from('dh_sales_daily')
-      .select('sold_qty,gfv_local')
-      .gte('sale_date', thirtyDaysAgo)
+      .select('sale_date')
+      .order('sale_date', { ascending: false })
+      .limit(1)
+      .maybeSingle()
 
-    if (salesErr) throw salesErr
+    let thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    if (latestSaleDateRow?.sale_date) {
+      const [y, m, d] = latestSaleDateRow.sale_date.split('-').map(Number)
+      const anchor = new Date(Date.UTC(y, m - 1, d))
+      const startObj = new Date(anchor.getTime() - 29 * 24 * 60 * 60 * 1000)
+      thirtyDaysAgo = startObj.toISOString().slice(0, 10)
+    }
+
+    const sales = await fetchAllPages<{ sold_qty: number | null; gfv_local: number | null }>(
+      (from, to) =>
+        supabase!
+          .from('dh_sales_daily')
+          .select('sold_qty,gfv_local')
+          .gte('sale_date', thirtyDaysAgo)
+          .range(from, to)
+    )
 
     let total_sold_30d = 0
     let total_gfv_30d = 0
-    for (const s of sales || []) {
+    for (const s of sales) {
       total_sold_30d += s.sold_qty || 0
       total_gfv_30d += Number(s.gfv_local || 0)
     }
@@ -145,12 +182,16 @@ export async function getDhSummaryStats(): Promise<DhSummaryStats> {
     let branch_stock = 0
 
     if (latestStockDateRow?.stock_date) {
-      const { data: stockRows } = await supabase
-        .from('dh_stock_daily')
-        .select('qty,dh_store_id,dh_stores(is_dc)')
-        .eq('stock_date', latestStockDateRow.stock_date)
+      const stockRows = await fetchAllPages<{ qty: number | null; dh_store_id: string; dh_stores: { is_dc: boolean } | null }>(
+        (from, to) =>
+          supabase!
+            .from('dh_stock_daily')
+            .select('qty,dh_store_id,dh_stores(is_dc)')
+            .eq('stock_date', latestStockDateRow.stock_date)
+            .range(from, to)
+      )
 
-      for (const st of stockRows || []) {
+      for (const st of stockRows) {
         const q = st.qty || 0
         total_stock += q
         const isDc = (st.dh_stores as any)?.is_dc
@@ -189,27 +230,51 @@ export async function getDhSalesTrend(filter?: { dhItemId?: string; days?: numbe
     return getDemoSalesTrend()
   }
 
-  const days = filter?.days || 30
-  const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
-
-  let query = supabase
+  // Find latest available sale_date to anchor rolling window
+  let latestDateQuery = supabase
     .from('dh_sales_daily')
-    .select('sale_date,sold_qty,gfv_local')
-    .gte('sale_date', startDate)
-    .order('sale_date', { ascending: true })
+    .select('sale_date')
+    .order('sale_date', { ascending: false })
+    .limit(1)
 
   if (filter?.dhItemId) {
-    query = query.eq('dh_item_id', filter.dhItemId)
+    latestDateQuery = latestDateQuery.eq('dh_item_id', filter.dhItemId)
   }
 
-  const { data, error } = await query
-  if (error) {
-    console.warn('Sales trend error:', error)
-    return getDemoSalesTrend()
+  const { data: latestDateRow } = await latestDateQuery.maybeSingle()
+
+  const days = filter?.days || 30
+  let startDate: string | null = null
+
+  if (latestDateRow?.sale_date) {
+    const [y, m, d] = latestDateRow.sale_date.split('-').map(Number)
+    const anchor = new Date(Date.UTC(y, m - 1, d))
+    const startObj = new Date(anchor.getTime() - (days - 1) * 24 * 60 * 60 * 1000)
+    startDate = startObj.toISOString().slice(0, 10)
+  } else {
+    startDate = new Date(Date.now() - (days - 1) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
   }
+
+  // Fetch all pages to prevent Supabase 1,000-row cutoff
+  const sales = await fetchAllPages<{ sale_date: string; sold_qty: number | null; gfv_local: number | null }>(
+    (from, to) => {
+      let query = supabase!
+        .from('dh_sales_daily')
+        .select('sale_date,sold_qty,gfv_local')
+        .order('sale_date', { ascending: true })
+
+      if (startDate) {
+        query = query.gte('sale_date', startDate)
+      }
+      if (filter?.dhItemId) {
+        query = query.eq('dh_item_id', filter.dhItemId)
+      }
+      return query.range(from, to)
+    }
+  )
 
   const grouped = new Map<string, { date: string; sold_qty: number; gfv_local: number }>()
-  for (const r of data || []) {
+  for (const r of sales) {
     const cur = grouped.get(r.sale_date) || { date: r.sale_date, sold_qty: 0, gfv_local: 0 }
     cur.sold_qty += r.sold_qty || 0
     cur.gfv_local += Number(r.gfv_local || 0)
@@ -379,20 +444,19 @@ export async function getDhStockMatrix(): Promise<{
     return { stores, rows: [] }
   }
 
-  const { data: stockRecords, error } = await supabase
-    .from('dh_stock_daily')
-    .select(`
-      dh_item_id,
-      dh_store_id,
-      qty,
-      dh_items(dh_sku,dh_name,match_status,basepacks(name))
-    `)
-    .eq('stock_date', latestDateRow.stock_date)
-
-  if (error) {
-    console.warn('Stock matrix query error:', error)
-    return getDemoStockMatrix()
-  }
+  const stockRecords = await fetchAllPages<any>(
+    (from, to) =>
+      supabase!
+        .from('dh_stock_daily')
+        .select(`
+          dh_item_id,
+          dh_store_id,
+          qty,
+          dh_items(dh_sku,dh_name,match_status,basepacks(name))
+        `)
+        .eq('stock_date', latestDateRow.stock_date)
+        .range(from, to)
+  )
 
   const rowMap = new Map<string, DhStockMatrixRow>()
 

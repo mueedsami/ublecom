@@ -224,7 +224,7 @@ export default function DhPage() {
       )}
 
       {/* KPI Cards Row */}
-      <div className="grid kpis" style={{ gridTemplateColumns: 'repeat(5, minmax(0, 1fr))' }}>
+      <div className="dh-kpis-grid">
         <div className="card">
           <div className="kpi-label">30-Day Pandamart GFV</div>
           <div className="kpi-value text-teal">
@@ -324,17 +324,8 @@ export default function DhPage() {
           {activeTab === 'analytics' && (
             <div style={{ display: 'grid', gap: 20 }}>
               {/* Sales & Revenue Trend Chart */}
-              <div className="card">
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    marginBottom: 16,
-                    flexWrap: 'wrap',
-                    gap: 12,
-                  }}
-                >
+              <div className="card dh-chart-card">
+                <div className="dh-chart-header">
                   <div>
                     <h2 style={{ fontSize: 16, margin: 0, fontWeight: 800 }}>
                       Pandamart 30-Day Sales Velocity & Revenue
@@ -361,23 +352,31 @@ export default function DhPage() {
                   </div>
                 </div>
 
-                <div style={{ height: 280, width: '100%' }}>
+                <div className="dh-chart-container">
                   <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={salesTrend}>
+                    <LineChart data={salesTrend} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
                       <CartesianGrid stroke="#26334f" vertical={false} />
                       <XAxis
                         dataKey="date"
                         stroke="#7284a2"
                         tick={{ fontSize: 10 }}
-                        tickFormatter={(v) => v.slice(5)}
+                        tickFormatter={(v) => {
+                          const parts = v.split('-')
+                          if (parts.length === 3) {
+                            return `${parseInt(parts[2], 10)}/${parseInt(parts[1], 10)}`
+                          }
+                          return v.slice(5)
+                        }}
+                        interval="preserveStartEnd"
+                        minTickGap={24}
                       />
                       <YAxis
                         stroke="#7284a2"
                         tick={{ fontSize: 10 }}
                         tickFormatter={(v) =>
                           trendMetric === 'gfv_local'
-                            ? `৳${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`
-                            : `${v}`
+                            ? `৳${v >= 1000000 ? `${(v / 1000000).toFixed(1)}M` : v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`
+                            : `${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`
                         }
                       />
                       <Tooltip
@@ -410,16 +409,7 @@ export default function DhPage() {
 
               {/* Store-wise Stock Heatmap & Inventory Matrix */}
               <div className="card">
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    marginBottom: 14,
-                    flexWrap: 'wrap',
-                    gap: 12,
-                  }}
-                >
+                <div className="dh-matrix-header">
                   <div>
                     <h2 style={{ fontSize: 16, margin: 0, fontWeight: 800 }}>
                       Store-wise Inventory Matrix (T-1 Depth)
@@ -429,32 +419,24 @@ export default function DhPage() {
                     </span>
                   </div>
 
-                  <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                    <div style={{ position: 'relative', width: 240 }}>
+                  <div className="dh-matrix-controls">
+                    <div className="dh-matrix-search">
                       <input
                         type="search"
                         placeholder="Search SKU or Basepack..."
                         value={stockSearch}
                         onChange={(e) => setStockSearch(e.target.value)}
-                        style={{
-                          width: '100%',
-                          background: '#0c1425',
-                          border: '1px solid var(--border)',
-                          borderRadius: 8,
-                          padding: '6px 10px 6px 30px',
-                          color: 'var(--text)',
-                          fontSize: 12,
-                        }}
                       />
-                      <Search
-                        size={14}
-                        style={{ position: 'absolute', left: 10, top: 9, color: 'var(--muted)' }}
-                      />
+                      <Search size={14} className="dh-matrix-search-icon" />
                     </div>
                     <span className="count-pill">
                       {filteredStockRows.length} Items
                     </span>
                   </div>
+                </div>
+
+                <div className="dh-swipe-hint">
+                  <span>👈 Swipe horizontally to view all 17 dark store columns 👉</span>
                 </div>
 
                 <div className="dh-stock-grid-wrap">
@@ -724,7 +706,7 @@ export default function DhPage() {
 
           {/* TAB 3: DAILY UPLOAD & INGEST */}
           {activeTab === 'import' && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 20 }}>
+            <div className="dh-import-grid">
               {/* Upload Box */}
               <div className="card">
                 <div style={{ marginBottom: 16 }}>
@@ -792,7 +774,7 @@ export default function DhPage() {
                       <CheckCircle2 size={16} />
                       Import &amp; Ingestion Successful!
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, fontSize: 12 }}>
+                    <div className="dh-import-results-grid">
                       <div>Total Catalog Items: <b>{importResult.total_catalog_items}</b></div>
                       <div>New Items Added: <b>{importResult.new_items_added}</b></div>
                       <div>Auto-matched Basepacks: <b style={{ color: 'var(--teal)' }}>{importResult.auto_matched_new}</b></div>
