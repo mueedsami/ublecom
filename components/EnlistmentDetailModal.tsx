@@ -22,6 +22,7 @@ interface EnlistmentDetailModalProps {
   onClose: () => void
   isReadOnly?: boolean
   onEdit?: (product: EnlistmentProduct) => void
+  onTogglePlatformEnlisted?: (product: EnlistmentProduct, platform: string) => Promise<void>
 }
 
 export default function EnlistmentDetailModal({
@@ -29,8 +30,10 @@ export default function EnlistmentDetailModal({
   onClose,
   isReadOnly = false,
   onEdit,
+  onTogglePlatformEnlisted,
 }: EnlistmentDetailModalProps) {
   const [copiedField, setCopiedField] = useState<string | null>(null)
+  const [togglingPlatform, setTogglingPlatform] = useState<string | null>(null)
 
   if (!product) return null
 
@@ -58,6 +61,8 @@ export default function EnlistmentDetailModal({
       `CERTIFICATION: ${product.cert_license}`,
       `ORIGIN: ${product.country_of_origin}`,
       `SUPPLIER: ${product.supplier_name}`,
+      `TARGET PLATFORMS: ${(product.target_platforms || []).join(', ')}`,
+      `CONFIRMED LIVE ON: ${(product.enlisted_platforms || []).join(', ') || 'None yet'}`,
       `IMAGE URL: ${product.image_url}`,
       `FEATURES & CLAIMS:\n${product.description}`,
     ].join('\n')
@@ -202,18 +207,55 @@ export default function EnlistmentDetailModal({
               </div>
             </div>
 
-            {/* Target Platforms */}
+            {/* Target Platforms & Live Shelf Tracking */}
             <div className="target-platforms-box">
-              <span className="tp-title">Platform Enlistment Scope:</span>
-              <div className="platform-badges">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <span className="tp-title">Platform Enlistment Tracking:</span>
+                <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 500 }}>
+                  {(product.enlisted_platforms || []).length} of {(product.target_platforms || []).length} Live
+                </span>
+              </div>
+              <div className="platform-badges-detailed">
                 {product.target_platforms && product.target_platforms.length > 0 ? (
-                  product.target_platforms.map((plat) => (
-                    <span key={plat} className="platform-badge">
-                      {plat}
-                    </span>
-                  ))
+                  product.target_platforms.map((plat) => {
+                    const isEnlisted = (product.enlisted_platforms || []).includes(plat)
+                    const isBusy = togglingPlatform === plat
+                    return (
+                      <div
+                        key={plat}
+                        className={`platform-dossier-card ${isEnlisted ? 'enlisted-live' : 'enlisted-pending'}`}
+                      >
+                        <div className="pd-info">
+                          <span className="pd-name">{plat}</span>
+                          <span className={`pd-status-pill ${isEnlisted ? 'live' : 'pending'}`}>
+                            {isEnlisted ? '✓ Live on Shelf' : '○ Pending Enlistment'}
+                          </span>
+                        </div>
+
+                        {!isReadOnly && onTogglePlatformEnlisted && (
+                          <button
+                            type="button"
+                            className={`pd-toggle-action ${isEnlisted ? 'btn-unmark' : 'btn-mark'}`}
+                            disabled={isBusy}
+                            onClick={async () => {
+                              try {
+                                setTogglingPlatform(plat)
+                                await onTogglePlatformEnlisted(product, plat)
+                              } finally {
+                                setTogglingPlatform(null)
+                              }
+                            }}
+                          >
+                            {isBusy ? 'Saving...' : isEnlisted ? 'Mark Pending' : 'Mark Live'}
+                          </button>
+                        )}
+                      </div>
+                    )
+                  })
                 ) : (
-                  <span className="text-muted">All partner platforms</span>
+                  <span className="text-muted" style={{ fontSize: 12 }}>
+                    No target platforms selected yet.
+                  </span>
                 )}
               </div>
             </div>

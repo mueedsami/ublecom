@@ -11,35 +11,44 @@ import {
   deleteEnlistmentProduct,
   exportEnlistmentToCSV,
   EnlistmentInput,
+  STANDARD_PLATFORMS,
+  togglePlatformEnlisted,
+  bulkMarkEnlisted,
+  bulkUpdateStatus,
+  bulkDeleteProducts,
+  EnlistmentAccount,
+  getEnlistmentAccounts,
 } from '@/lib/enlistmentData'
 import EnlistmentModal from '@/components/EnlistmentModal'
 import EnlistmentDetailModal from '@/components/EnlistmentDetailModal'
 import EnlistmentShareModal from '@/components/EnlistmentShareModal'
+import EnlistmentImportModal from '@/components/EnlistmentImportModal'
+import EnlistmentAccountsModal from '@/components/EnlistmentAccountsModal'
 import {
   Search,
   Plus,
   Share2,
   Download,
+  Upload,
   Filter,
   Eye,
   Edit2,
   Trash2,
   Copy,
   Check,
-  ExternalLink,
   Layers,
   Table as TableIcon,
   LayoutGrid,
   Shield,
-  ShieldAlert,
-  ArrowUpDown,
-  Lock,
   Unlock,
   CheckCircle2,
-  Clock,
   AlertCircle,
-  HelpCircle,
   Sparkles,
+  ChevronDown,
+  X,
+  ExternalLink,
+  CheckCheck,
+  Store,
 } from 'lucide-react'
 
 interface EnlistmentHubProps {
@@ -52,6 +61,8 @@ export default function EnlistmentHub({
   initialPlatform = '',
 }: EnlistmentHubProps) {
   const [products, setProducts] = useState<EnlistmentProduct[]>([])
+  const [accounts, setAccounts] = useState<EnlistmentAccount[]>([])
+  const [isAccountsOpen, setIsAccountsOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isPartnerView, setIsPartnerView] = useState(initialIsPartnerView)
@@ -63,21 +74,35 @@ export default function EnlistmentHub({
   const [deptFilter, setDeptFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
   const [platformFilter, setPlatformFilter] = useState(initialPlatform || 'all')
+  const [platformStatusFilter, setPlatformStatusFilter] = useState<'all' | 'live' | 'pending'>('all')
   const [viewMode, setViewMode] = useState<'table' | 'cards'>('table')
 
   // Modals state
   const [isAddEditOpen, setIsAddEditOpen] = useState(false)
+  const [isImportOpen, setIsImportOpen] = useState(false)
   const [editingProduct, setEditingProduct] = useState<EnlistmentProduct | null>(null)
   const [selectedProduct, setSelectedProduct] = useState<EnlistmentProduct | null>(null)
   const [isShareOpen, setIsShareOpen] = useState(false)
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
 
+  // Bulk Selection State
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkActionBusy, setBulkActionBusy] = useState(false)
+  const [bulkTargetPlatform, setBulkTargetPlatform] = useState<string>('Daraz')
+
   async function loadData() {
     setLoading(true)
     setError(null)
     try {
-      const items = await getEnlistmentProducts()
+      const [items, accs] = await Promise.all([
+        getEnlistmentProducts(),
+        getEnlistmentAccounts(),
+      ])
       setProducts(items)
+      setAccounts(accs)
+      // Clean up selections that no longer exist
+      const existingIds = new Set(items.map((i) => i.id))
+      setSelectedIds((prev) => new Set(Array.from(prev).filter((id) => existingIds.has(id))))
     } catch (err: any) {
       console.error('Failed to load enlistment products from database:', err)
       setError(err?.message || 'Failed to load products from database')
@@ -97,6 +122,27 @@ export default function EnlistmentHub({
       setPlatformFilter(initialPlatform)
     }
   }, [initialPlatform])
+
+  // Active accounts for tracking, filtering, and bulk actions
+  const activeAccountNames = useMemo(() => {
+    const fromAccounts = accounts.filter((a) => a.active).map((a) => a.name)
+    if (fromAccounts.length > 0) return fromAccounts
+
+    // Fallback to accounts in products or standard platforms
+    const set = new Set<string>()
+    for (const p of products) {
+      for (const tp of p.target_platforms || []) set.add(tp)
+    }
+    if (set.size > 0) return Array.from(set).sort()
+    return Array.from(STANDARD_PLATFORMS)
+  }, [accounts, products])
+
+  // Sync bulk target platform when active accounts change
+  useEffect(() => {
+    if (activeAccountNames.length > 0 && !activeAccountNames.includes(bulkTargetPlatform)) {
+      setBulkTargetPlatform(activeAccountNames[0])
+    }
+  }, [activeAccountNames, bulkTargetPlatform])
 
   // Compute KPIs
   const kpis: EnlistmentKPIs = useMemo(() => {
@@ -123,16 +169,24 @@ export default function EnlistmentHub({
   const filteredProducts = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
     return products.filter((p) => {
-      if (brandFilter !== 'all' && p.brand.toLowerCase() !== brandFilter.toLowerCase()) return false
-      if (categoryFilter !== 'all' && p.category.toLowerCase() !== categoryFilter.toLowerCase())
+      if (brandFilter !== 'all' && p.brand?.toLowerCase() !== brandFilter.toLowerCase()) return false
+      if (categoryFilter !== 'all' && p.category?.toLowerCase() !== categoryFilter.toLowerCase())
         return false
-      if (deptFilter !== 'all' && p.dept.toLowerCase() !== deptFilter.toLowerCase()) return false
+      if (deptFilter !== 'all' && p.dept?.toLowerCase() !== deptFilter.toLowerCase()) return false
       if (statusFilter !== 'all' && p.enlistment_status !== statusFilter) return false
+
       if (platformFilter !== 'all') {
-        const hasPlat = p.target_platforms?.some(
+        const isTargeted = p.target_platforms?.some(
           (tp) => tp.toLowerCase() === platformFilter.toLowerCase()
         )
-        if (!hasPlat) return false
+        if (!isTargeted) return false
+
+        const isLive = (p.enlisted_platforms || []).some(
+          (ep) => ep.toLowerCase() === platformFilter.toLowerCase()
+        )
+
+        if (platformStatusFilter === 'live' && !isLive) return false
+        if (platformStatusFilter === 'pending' && isLive) return false
       }
 
       if (!q) return true
@@ -145,7 +199,41 @@ export default function EnlistmentHub({
         p.description?.toLowerCase().includes(q)
       )
     })
-  }, [products, searchQuery, brandFilter, categoryFilter, deptFilter, statusFilter, platformFilter])
+  }, [
+    products,
+    searchQuery,
+    brandFilter,
+    categoryFilter,
+    deptFilter,
+    statusFilter,
+    platformFilter,
+    platformStatusFilter,
+  ])
+
+  // Bulk Selection Handlers
+  function toggleSelectProduct(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) {
+        next.delete(id)
+      } else {
+        next.add(id)
+      }
+      return next
+    })
+  }
+
+  function toggleSelectAllFiltered() {
+    if (selectedIds.size === filteredProducts.length && filteredProducts.length > 0) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(filteredProducts.map((p) => p.id)))
+    }
+  }
+
+  function clearSelection() {
+    setSelectedIds(new Set())
+  }
 
   // Clipboard copy helper
   function copyText(text: string, key: string) {
@@ -162,9 +250,10 @@ export default function EnlistmentHub({
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
+    const platformSuffix = platformFilter !== 'all' ? `_${platformFilter}` : ''
     link.setAttribute(
       'download',
-      `UBL_Product_Enlistment_Master_${new Date().toISOString().split('T')[0]}.csv`
+      `UBL_Product_Enlistment${platformSuffix}_${new Date().toISOString().split('T')[0]}.csv`
     )
     document.body.appendChild(link)
     link.click()
@@ -192,6 +281,11 @@ export default function EnlistmentHub({
       try {
         await deleteEnlistmentProduct(id)
         setProducts((prev) => prev.filter((p) => p.id !== id))
+        setSelectedIds((prev) => {
+          const next = new Set(prev)
+          next.delete(id)
+          return next
+        })
       } catch (err: any) {
         alert(`Database delete failed: ${err.message || err}`)
       }
@@ -207,6 +301,76 @@ export default function EnlistmentHub({
     }
   }
 
+  // Per-Platform live status toggle
+  async function handleTogglePlatformEnlisted(product: EnlistmentProduct, platform: string) {
+    try {
+      const updated = await togglePlatformEnlisted(product, platform)
+      setProducts((prev) => prev.map((p) => (p.id === updated.id ? updated : p)))
+      if (selectedProduct && selectedProduct.id === updated.id) {
+        setSelectedProduct(updated)
+      }
+    } catch (err: any) {
+      alert(`Failed to update platform enlistment status: ${err.message || err}`)
+    }
+  }
+
+  // Bulk Actions
+  async function handleBulkMarkEnlisted(platform: string, markLive: boolean) {
+    if (selectedIds.size === 0) return
+    setBulkActionBusy(true)
+    try {
+      const ids = Array.from(selectedIds)
+      const updated = await bulkMarkEnlisted(products, ids, platform, markLive)
+      const updatedMap = new Map(updated.map((u) => [u.id, u]))
+      setProducts((prev) => prev.map((p) => updatedMap.get(p.id) || p))
+      clearSelection()
+    } catch (err: any) {
+      alert(`Bulk update failed: ${err.message || err}`)
+    } finally {
+      setBulkActionBusy(false)
+    }
+  }
+
+  async function handleBulkStatusChange(status: any) {
+    if (selectedIds.size === 0) return
+    setBulkActionBusy(true)
+    try {
+      const ids = Array.from(selectedIds)
+      await bulkUpdateStatus(ids, status)
+      setProducts((prev) =>
+        prev.map((p) => (ids.includes(p.id) ? { ...p, enlistment_status: status } : p))
+      )
+      clearSelection()
+    } catch (err: any) {
+      alert(`Bulk status update failed: ${err.message || err}`)
+    } finally {
+      setBulkActionBusy(false)
+    }
+  }
+
+  async function handleBulkDelete() {
+    if (selectedIds.size === 0) return
+    if (
+      !confirm(
+        `Are you sure you want to permanently delete ${selectedIds.size} selected products from the database?`
+      )
+    ) {
+      return
+    }
+
+    setBulkActionBusy(true)
+    try {
+      const ids = Array.from(selectedIds)
+      await bulkDeleteProducts(ids)
+      setProducts((prev) => prev.filter((p) => !ids.includes(p.id)))
+      clearSelection()
+    } catch (err: any) {
+      alert(`Bulk delete failed: ${err.message || err}`)
+    } finally {
+      setBulkActionBusy(false)
+    }
+  }
+
   return (
     <div className="enlistment-container">
       {/* Top Banner: Mode Indicator */}
@@ -215,7 +379,7 @@ export default function EnlistmentHub({
           {isPartnerView ? (
             <>
               <div className="access-badge partner">
-                <Lock size={14} />
+                <Shield size={14} />
                 <span>External Retail Partner View (Read-Only)</span>
               </div>
               <span className="banner-desc">
@@ -230,8 +394,8 @@ export default function EnlistmentHub({
                 <span>Unilever Account Manager (Full Edit Access)</span>
               </div>
               <span className="banner-desc">
-                Manage product pipeline, specifications, margins, and share view links with
-                e-commerce accounts.
+                Manage product pipeline, specifications, margins, bulk import sheets, and track
+                live digital shelf status per retail partner.
               </span>
             </>
           )}
@@ -276,12 +440,12 @@ export default function EnlistmentHub({
 
         <div className="card checker-kpi">
           <div className="kpi-icon-row">
-            <span className="kpi-tag tag-green">Ready to Enlist</span>
+            <span className="kpi-tag tag-green">Pipeline Ready</span>
             <CheckCircle2 size={18} className="text-green" />
           </div>
           <div className="kpi-number text-green">{kpis.open_enlistments}</div>
           <div className="kpi-title">Open for Enlistment</div>
-          <div className="kpi-desc">Specs ready for partner upload</div>
+          <div className="kpi-desc">Specs validated & ready for upload</div>
         </div>
 
         <div className="card checker-kpi">
@@ -291,7 +455,7 @@ export default function EnlistmentHub({
           </div>
           <div className="kpi-number text-coral">{kpis.enlisted_live}</div>
           <div className="kpi-title">Enlisted & Live</div>
-          <div className="kpi-desc">Currently published across platforms</div>
+          <div className="kpi-desc">Live on at least 1 retail platform</div>
         </div>
 
         <div className="card checker-kpi">
@@ -304,6 +468,59 @@ export default function EnlistmentHub({
           <div className="kpi-desc">Across {kpis.total_brands} Unilever brands</div>
         </div>
       </div>
+
+      {/* Platform Coverage Quick Strip */}
+      {products.length > 0 && (
+        <div className="card platform-coverage-strip">
+          <div className="pcs-header">
+            <span className="pcs-title">Live on Retailers & Accounts:</span>
+            {!isPartnerView && (
+              <button
+                type="button"
+                className="pcs-manage-btn"
+                onClick={() => setIsAccountsOpen(true)}
+                title="Add or remove accounts, quick-commerce, and marketplace vendors"
+              >
+                <Store size={12} />
+                Manage Accounts ({activeAccountNames.length})
+              </button>
+            )}
+          </div>
+          <div className="pcs-items">
+            {activeAccountNames.map((plat) => {
+              const liveCount =
+                kpis.enlisted_by_platform[plat] ||
+                kpis.enlisted_by_platform[plat.toLowerCase()] ||
+                0
+              const targetCount =
+                kpis.targeted_by_platform[plat] ||
+                kpis.targeted_by_platform[plat.toLowerCase()] ||
+                0
+              const pct = targetCount > 0 ? Math.round((liveCount / targetCount) * 100) : 0
+              return (
+                <div
+                  key={plat}
+                  className={`pcs-badge ${liveCount > 0 ? 'active' : ''} ${
+                    platformFilter === plat ? 'filter-active' : ''
+                  }`}
+                  onClick={() => {
+                    setPlatformFilter(platformFilter === plat ? 'all' : plat)
+                  }}
+                  title={`Click to filter by ${plat} (${liveCount}/${targetCount} live)`}
+                >
+                  <span className="pcs-name">{plat}</span>
+                  <span className="pcs-count">
+                    <strong>{liveCount}</strong> / {targetCount} live
+                  </span>
+                  <div className="pcs-progress-bar">
+                    <div className="pcs-fill" style={{ width: `${pct}%` }} />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Toolbar: Actions & Search */}
       <div className="card enlist-toolbar-card">
@@ -334,7 +551,7 @@ export default function EnlistmentHub({
                 type="button"
                 className={viewMode === 'table' ? 'active' : ''}
                 onClick={() => setViewMode('table')}
-                title="Spreadsheet Table View (20 Columns)"
+                title="Spreadsheet Table View with per-platform status"
               >
                 <TableIcon size={14} />
                 Table
@@ -355,11 +572,24 @@ export default function EnlistmentHub({
               type="button"
               className="secondary-btn"
               onClick={handleExportCSV}
-              title="Download standardized 20-column Excel/CSV Enlistment Sheet"
+              title="Download standardized 20-column Excel/CSV Enlistment Sheet scoped to filter"
             >
               <Download size={14} />
               Export Sheet
             </button>
+
+            {/* Manager Only: Bulk Import */}
+            {!isPartnerView && (
+              <button
+                type="button"
+                className="secondary-btn btn-highlight"
+                onClick={() => setIsImportOpen(true)}
+                title="Bulk upload Excel/CSV sheet of products into pipeline"
+              >
+                <Upload size={14} />
+                Import Sheet
+              </button>
+            )}
 
             {/* Manager Only: Share Modal */}
             {!isPartnerView && (
@@ -374,7 +604,20 @@ export default function EnlistmentHub({
               </button>
             )}
 
-            {/* Manager Only: Add Product */}
+            {/* Manager Only: Manage Accounts / Vendors */}
+            {!isPartnerView && (
+              <button
+                type="button"
+                className="secondary-btn"
+                onClick={() => setIsAccountsOpen(true)}
+                title="Manage retail vendors, e-commerce accounts, and marketplaces"
+              >
+                <Store size={14} />
+                Accounts ({activeAccountNames.length})
+              </button>
+            )}
+
+            {/* Manager Only: Add Single Product */}
             {!isPartnerView && (
               <button
                 type="button"
@@ -430,7 +673,7 @@ export default function EnlistmentHub({
           </div>
 
           <div className="filter-item">
-            <label>Enlistment Status</label>
+            <label>Global Status</label>
             <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
               <option value="all">All Statuses</option>
               <option value="open">Open for Enlistment</option>
@@ -441,22 +684,37 @@ export default function EnlistmentHub({
           </div>
 
           <div className="filter-item">
-            <label>Platform Target</label>
+            <label>Retail Platform / Account</label>
             <select value={platformFilter} onChange={(e) => setPlatformFilter(e.target.value)}>
-              <option value="all">All E-Commerce Platforms</option>
-              <option value="Chaldal">Chaldal</option>
-              <option value="Daraz">Daraz</option>
-              <option value="Shwapno">Shwapno</option>
-              <option value="PandaMart">PandaMart</option>
-              <option value="MeenaClick">MeenaClick</option>
+              <option value="all">All Accounts & Platforms</option>
+              {activeAccountNames.map((plat) => (
+                <option key={plat} value={plat}>
+                  {plat}
+                </option>
+              ))}
             </select>
           </div>
+
+          {platformFilter !== 'all' && (
+            <div className="filter-item highlight-filter">
+              <label>Shelf Status on {platformFilter}</label>
+              <select
+                value={platformStatusFilter}
+                onChange={(e) => setPlatformStatusFilter(e.target.value as any)}
+              >
+                <option value="all">All ({platformFilter})</option>
+                <option value="live">✓ Live / Enlisted</option>
+                <option value="pending">○ Pending Enlistment</option>
+              </select>
+            </div>
+          )}
 
           {(brandFilter !== 'all' ||
             categoryFilter !== 'all' ||
             deptFilter !== 'all' ||
             statusFilter !== 'all' ||
             platformFilter !== 'all' ||
+            platformStatusFilter !== 'all' ||
             searchQuery) && (
             <button
               type="button"
@@ -467,6 +725,7 @@ export default function EnlistmentHub({
                 setDeptFilter('all')
                 setStatusFilter('all')
                 setPlatformFilter('all')
+                setPlatformStatusFilter('all')
                 setSearchQuery('')
               }}
             >
@@ -475,6 +734,97 @@ export default function EnlistmentHub({
           )}
         </div>
       </div>
+
+      {/* Floating / Sticky Bulk Action Bar */}
+      {!isPartnerView && selectedIds.size > 0 && (
+        <div className="enlist-bulk-bar">
+          <div className="bulk-selection-count">
+            <CheckCheck size={16} className="text-teal" />
+            <span>
+              <strong>{selectedIds.size}</strong> product(s) selected
+            </span>
+          </div>
+
+          <div className="bulk-actions-group">
+            {/* Mark Enlisted on Platform */}
+            <div className="bulk-platform-action">
+              <select
+                value={bulkTargetPlatform}
+                onChange={(e) => setBulkTargetPlatform(e.target.value)}
+                className="bulk-select"
+                disabled={bulkActionBusy}
+              >
+                {activeAccountNames.map((plat) => (
+                  <option key={plat} value={plat}>
+                    {plat}
+                  </option>
+                ))}
+              </select>
+
+              <button
+                type="button"
+                className="bulk-btn bulk-btn-success"
+                disabled={bulkActionBusy}
+                onClick={() => handleBulkMarkEnlisted(bulkTargetPlatform, true)}
+                title={`Mark selected ${selectedIds.size} products as confirmed live on ${bulkTargetPlatform}`}
+              >
+                <Check size={13} /> Mark Live on {bulkTargetPlatform}
+              </button>
+
+              <button
+                type="button"
+                className="bulk-btn bulk-btn-subtle"
+                disabled={bulkActionBusy}
+                onClick={() => handleBulkMarkEnlisted(bulkTargetPlatform, false)}
+                title={`Unmark live status (set to pending) on ${bulkTargetPlatform}`}
+              >
+                Mark Pending
+              </button>
+            </div>
+
+            {/* Change global status */}
+            <select
+              className="bulk-select"
+              disabled={bulkActionBusy}
+              defaultValue=""
+              onChange={(e) => {
+                if (e.target.value) {
+                  handleBulkStatusChange(e.target.value)
+                  e.target.value = ''
+                }
+              }}
+            >
+              <option value="" disabled>
+                Change Status...
+              </option>
+              <option value="open">Set Open for Enlistment</option>
+              <option value="in_review">Set Under Review</option>
+              <option value="enlisted">Set Enlisted & Live</option>
+              <option value="paused">Set Paused</option>
+            </select>
+
+            {/* Delete */}
+            <button
+              type="button"
+              className="bulk-btn bulk-btn-danger"
+              disabled={bulkActionBusy}
+              onClick={handleBulkDelete}
+              title="Delete selected products from database"
+            >
+              <Trash2 size={13} /> Delete
+            </button>
+
+            <button
+              type="button"
+              className="bulk-clear-btn"
+              onClick={clearSelection}
+              title="Deselect all"
+            >
+              <X size={15} />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Database Error Banner */}
       {error && (
@@ -495,7 +845,7 @@ export default function EnlistmentHub({
                 Database Error: {error}
               </div>
               <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.5 }}>
-                Please ensure the table <code style={{ color: '#93c5fd' }}>product_enlistments</code> is created in your Supabase project. You can run the SQL script in <code style={{ color: '#93c5fd' }}>supabase/008_product_enlistments.sql</code> in the Supabase SQL Editor.
+                Please ensure the table <code style={{ color: '#93c5fd' }}>product_enlistments</code> is created in your Supabase project. You can run the SQL script in <code style={{ color: '#93c5fd' }}>supabase/008_product_enlistments.sql</code> and <code style={{ color: '#93c5fd' }}>supabase/011_enlistment_platform_tracking.sql</code> in the Supabase SQL Editor.
               </div>
             </div>
           </div>
@@ -514,19 +864,30 @@ export default function EnlistmentHub({
           <h3>No products in database</h3>
           <p style={{ color: 'var(--muted)', maxWidth: 480, margin: '8px auto 20px' }}>
             There are currently no products registered in the database enlistment pipeline.
+            You can add products manually or bulk import an Excel/CSV spreadsheet.
           </p>
           {!isPartnerView && (
-            <button
-              type="button"
-              className="btn-primary"
-              onClick={() => {
-                setEditingProduct(null)
-                setIsAddEditOpen(true)
-              }}
-            >
-              <Plus size={15} style={{ marginRight: 6 }} />
-              Add Product to Database
-            </button>
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
+              <button
+                type="button"
+                className="secondary-btn"
+                onClick={() => setIsImportOpen(true)}
+              >
+                <Upload size={15} style={{ marginRight: 6 }} />
+                Bulk Import Sheet
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => {
+                  setEditingProduct(null)
+                  setIsAddEditOpen(true)
+                }}
+              >
+                <Plus size={15} style={{ marginRight: 6 }} />
+                Add Product to Database
+              </button>
+            </div>
           )}
         </div>
       ) : filteredProducts.length === 0 ? (
@@ -536,15 +897,16 @@ export default function EnlistmentHub({
           <p>Try resetting filters or adjusting your search query.</p>
         </div>
       ) : viewMode === 'table' ? (
-        /* SPREADSHEET TABLE VIEW: Exact 20 columns matching the user's specification sheet */
+        /* SPREADSHEET TABLE VIEW: Full specification columns + interactive platform tracking */
         <div className="card enlist-table-card">
           <div className="table-top-meta">
             <span>
               Showing <strong>{filteredProducts.length}</strong> of{' '}
               <strong>{products.length}</strong> pipeline products
+              {selectedIds.size > 0 && ` (${selectedIds.size} selected)`}
             </span>
             <span className="scroll-hint">
-              ← Scroll horizontally to inspect all 20 specification columns →
+              ← Scroll horizontally to inspect all 20 specification columns & platform tracking →
             </span>
           </div>
 
@@ -552,195 +914,260 @@ export default function EnlistmentHub({
             <table className="table enlist-sheet-table">
               <thead>
                 <tr>
+                  {!isPartnerView && (
+                    <th style={{ width: 36, textAlign: 'center' }}>
+                      <input
+                        type="checkbox"
+                        checked={
+                          filteredProducts.length > 0 &&
+                          filteredProducts.every((p) => selectedIds.has(p.id))
+                        }
+                        onChange={toggleSelectAllFiltered}
+                        title="Select/Deselect all filtered rows"
+                      />
+                    </th>
+                  )}
                   <th style={{ width: 45 }}>SL</th>
                   <th style={{ minWidth: 155 }}>Barcode</th>
+                  <th style={{ minWidth: 260 }}>Product Name</th>
+                  <th style={{ minWidth: 220 }}>Platform Shelf Tracking</th>
+                  <th style={{ minWidth: 80 }}>Image</th>
+                  <th style={{ minWidth: 110 }}>Brand</th>
+                  <th style={{ minWidth: 90, textAlign: 'right' }}>TP (৳)</th>
+                  <th style={{ minWidth: 90, textAlign: 'right' }}>MRP (৳)</th>
+                  <th style={{ minWidth: 85, textAlign: 'center' }}>Margin</th>
                   <th style={{ minWidth: 110 }}>Dim L (cm)</th>
                   <th style={{ minWidth: 110 }}>Dim D (cm)</th>
                   <th style={{ minWidth: 110 }}>Dim H (cm)</th>
                   <th style={{ minWidth: 115 }}>Shelf Life</th>
-                  <th style={{ minWidth: 260 }}>Product Name</th>
-                  <th style={{ minWidth: 80 }}>Image</th>
-                  <th style={{ minWidth: 220 }}>Description (Features)</th>
                   <th style={{ minWidth: 130 }}>Dept</th>
                   <th style={{ minWidth: 120 }}>Category</th>
                   <th style={{ minWidth: 110 }}>SubCategory</th>
                   <th style={{ minWidth: 100 }}>Pcs / CRM</th>
-                  <th style={{ minWidth: 90, textAlign: 'right' }}>TP (৳)</th>
-                  <th style={{ minWidth: 90, textAlign: 'right' }}>MRP (৳)</th>
-                  <th style={{ minWidth: 95, textAlign: 'center' }}>Margin</th>
                   <th style={{ minWidth: 90 }}>Cert/Licns</th>
-                  <th style={{ minWidth: 110 }}>Brand</th>
-                  <th style={{ minWidth: 190 }}>Supplier Name</th>
+                  <th style={{ minWidth: 180 }}>Supplier Name</th>
                   <th style={{ minWidth: 120 }}>Origin</th>
                   <th style={{ minWidth: 150 }}>Enlistment Status</th>
-                  <th style={{ minWidth: 120, textAlign: 'center' }}>Actions</th>
+                  <th style={{ minWidth: 110, textAlign: 'center' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredProducts.map((p, idx) => (
-                  <tr key={p.id}>
-                    <td className="text-muted font-mono">{p.sl || idx + 1}</td>
-                    <td>
-                      <div className="barcode-cell">
-                        <code className="barcode-text">{p.barcode}</code>
-                        <button
-                          type="button"
-                          className="copy-cell-btn"
-                          onClick={() => copyText(p.barcode, `bar-${p.id}`)}
-                          title="Copy Barcode"
-                        >
-                          {copiedKey === `bar-${p.id}` ? (
-                            <Check size={12} className="text-green" />
-                          ) : (
-                            <Copy size={12} />
-                          )}
-                        </button>
-                      </div>
-                    </td>
-                    <td className="num-cell">{p.dim_length_cm}</td>
-                    <td className="num-cell">{p.dim_depth_cm}</td>
-                    <td className="num-cell">{p.dim_height_cm}</td>
-                    <td className="num-cell">
-                      {p.shelf_life_days} <small className="text-muted">days</small>
-                    </td>
-                    <td>
-                      <div
-                        className="product-name-link"
-                        onClick={() => setSelectedProduct(p)}
-                        title="Click to view full specification dossier"
-                      >
-                        <strong>{p.name}</strong>
-                      </div>
-                    </td>
-                    <td style={{ textAlign: 'center' }}>
-                      <div className="table-thumb-wrap">
-                        <img
-                          src={p.image_url || 'https://placehold.co/100x100/101a2d/75a9ff?text=No+Img'}
-                          alt={p.name}
-                          className="table-thumb"
-                          onClick={() => setSelectedProduct(p)}
-                          onError={(e) => {
-                            ;(e.target as any).src =
-                              'https://placehold.co/100x100/101a2d/75a9ff?text=Pack'
-                          }}
-                        />
-                        {p.image_url && (
+                {filteredProducts.map((p, idx) => {
+                  const isSelected = selectedIds.has(p.id)
+                  const targetList = p.target_platforms || []
+                  const liveList = p.enlisted_platforms || []
+
+                  return (
+                    <tr key={p.id} className={isSelected ? 'row-selected' : ''}>
+                      {!isPartnerView && (
+                        <td style={{ textAlign: 'center' }}>
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleSelectProduct(p.id)}
+                          />
+                        </td>
+                      )}
+                      <td className="text-muted font-mono">{p.sl || idx + 1}</td>
+                      <td>
+                        <div className="barcode-cell">
+                          <code className="barcode-text">{p.barcode}</code>
                           <button
                             type="button"
-                            className="thumb-copy-btn"
-                            onClick={() => copyText(p.image_url, `img-${p.id}`)}
-                            title="Copy Image URL"
+                            className="copy-cell-btn"
+                            onClick={() => copyText(p.barcode, `bar-${p.id}`)}
+                            title="Copy Barcode"
                           >
-                            {copiedKey === `img-${p.id}` ? <Check size={11} /> : <Copy size={11} />}
+                            {copiedKey === `bar-${p.id}` ? (
+                              <Check size={12} className="text-green" />
+                            ) : (
+                              <Copy size={12} />
+                            )}
                           </button>
-                        )}
-                      </div>
-                    </td>
-                    <td>
-                      <div
-                        className="description-cell-truncate"
-                        title={p.description}
-                        onClick={() => setSelectedProduct(p)}
-                      >
-                        {p.description || <span className="text-muted">—</span>}
-                      </div>
-                    </td>
-                    <td>
-                      <span className="badge-subtle">{p.dept}</span>
-                    </td>
-                    <td>{p.category}</td>
-                    <td>{p.subcategory || '—'}</td>
-                    <td className="num-cell">{p.pcs_per_crm}</td>
-                    <td className="num-cell strong">৳ {p.tp?.toFixed(2)}</td>
-                    <td className="num-cell strong highlight">৳ {p.mrp?.toFixed(2)}</td>
-                    <td style={{ textAlign: 'center' }}>
-                      <span className="margin-pill-sm">{p.margin?.toFixed(2)}%</span>
-                    </td>
-                    <td>
-                      <span className="cert-badge">{p.cert_license || 'BSTI'}</span>
-                    </td>
-                    <td>
-                      <strong className="text-teal">{p.brand}</strong>
-                    </td>
-                    <td className="text-muted" style={{ fontSize: 11 }}>
-                      {p.supplier_name}
-                    </td>
-                    <td>{p.country_of_origin}</td>
-                    <td>
-                      {!isPartnerView ? (
-                        <select
-                          className={`status-select ${
-                            p.enlistment_status === 'enlisted'
-                              ? 'status-ok-sel'
-                              : p.enlistment_status === 'in_review'
-                              ? 'status-review-sel'
-                              : 'status-open-sel'
-                          }`}
-                          value={p.enlistment_status}
-                          onChange={(e) => handleQuickStatusChange(p.id, e.target.value)}
-                        >
-                          <option value="open">Open for Enlistment</option>
-                          <option value="in_review">Under Review</option>
-                          <option value="enlisted">Enlisted & Live</option>
-                          <option value="paused">Paused / Delisted</option>
-                        </select>
-                      ) : (
-                        <span
-                          className={`status-chip ${
-                            p.enlistment_status === 'enlisted'
-                              ? 'status-available'
-                              : p.enlistment_status === 'in_review'
-                              ? 'status-mixed'
-                              : 'status-unavailable'
-                          }`}
-                        >
-                          {p.enlistment_status === 'enlisted'
-                            ? 'Enlisted Live'
-                            : p.enlistment_status === 'in_review'
-                            ? 'Under Review'
-                            : 'Open'}
-                        </span>
-                      )}
-                    </td>
-                    <td style={{ textAlign: 'center' }}>
-                      <div className="table-actions-cell">
-                        <button
-                          type="button"
-                          className="icon-action-btn"
+                        </div>
+                      </td>
+                      <td>
+                        <div
+                          className="product-name-link"
                           onClick={() => setSelectedProduct(p)}
-                          title="Inspect Dossier"
+                          title="Click to view full specification dossier"
                         >
-                          <Eye size={14} />
-                        </button>
+                          <strong>{p.name}</strong>
+                        </div>
+                      </td>
 
-                        {!isPartnerView && (
-                          <>
+                      {/* Interactive Platform Live Shelf Tracking */}
+                      <td>
+                        <div className="table-platform-chips">
+                          {targetList.length === 0 ? (
+                            <span className="text-muted" style={{ fontSize: 11 }}>
+                              No platforms targeted
+                            </span>
+                          ) : (
+                            targetList.map((plat) => {
+                              const isLive = liveList.includes(plat)
+                              return (
+                                <button
+                                  type="button"
+                                  key={plat}
+                                  className={`plat-live-chip ${isLive ? 'live' : 'pending'} ${
+                                    isPartnerView ? 'read-only' : ''
+                                  }`}
+                                  disabled={isPartnerView}
+                                  onClick={() => handleTogglePlatformEnlisted(p, plat)}
+                                  title={
+                                    isPartnerView
+                                      ? isLive
+                                        ? `Confirmed live on ${plat}`
+                                        : `Pending enlistment on ${plat}`
+                                      : isLive
+                                      ? `Live on ${plat} (Click to mark pending)`
+                                      : `Pending on ${plat} (Click to mark live)`
+                                  }
+                                >
+                                  {isLive ? <Check size={10} /> : <span style={{ opacity: 0.5 }}>○</span>}
+                                  {plat}
+                                </button>
+                              )
+                            })
+                          )}
+                          {targetList.length > 0 && (
+                            <span className="platform-ratio-tag">
+                              {liveList.length}/{targetList.length}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+
+                      <td style={{ textAlign: 'center' }}>
+                        <div className="table-thumb-wrap">
+                          <img
+                            src={p.image_url || 'https://placehold.co/100x100/101a2d/75a9ff?text=No+Img'}
+                            alt={p.name}
+                            className="table-thumb"
+                            onClick={() => setSelectedProduct(p)}
+                            onError={(e) => {
+                              ;(e.target as any).src =
+                                'https://placehold.co/100x100/101a2d/75a9ff?text=Pack'
+                            }}
+                          />
+                          {p.image_url && (
                             <button
                               type="button"
-                              className="icon-action-btn"
-                              onClick={() => {
-                                setEditingProduct(p)
-                                setIsAddEditOpen(true)
-                              }}
-                              title="Edit Specifications"
+                              className="thumb-copy-btn"
+                              onClick={() => copyText(p.image_url, `img-${p.id}`)}
+                              title="Copy Image URL"
                             >
-                              <Edit2 size={14} />
+                              {copiedKey === `img-${p.id}` ? <Check size={11} /> : <Copy size={11} />}
                             </button>
+                          )}
+                        </div>
+                      </td>
 
-                            <button
-                              type="button"
-                              className="icon-action-btn delete-btn"
-                              onClick={() => handleDeleteProduct(p.id, p.name)}
-                              title="Delete Product"
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          </>
+                      <td>
+                        <strong className="text-teal">{p.brand}</strong>
+                      </td>
+                      <td className="num-cell strong">৳ {p.tp?.toFixed(2)}</td>
+                      <td className="num-cell strong highlight">৳ {p.mrp?.toFixed(2)}</td>
+                      <td style={{ textAlign: 'center' }}>
+                        <span className="margin-pill-sm">{p.margin?.toFixed(2)}%</span>
+                      </td>
+
+                      <td className="num-cell">{p.dim_length_cm}</td>
+                      <td className="num-cell">{p.dim_depth_cm}</td>
+                      <td className="num-cell">{p.dim_height_cm}</td>
+                      <td className="num-cell">
+                        {p.shelf_life_days} <small className="text-muted">days</small>
+                      </td>
+                      <td>
+                        <span className="badge-subtle">{p.dept}</span>
+                      </td>
+                      <td>{p.category}</td>
+                      <td>{p.subcategory || '—'}</td>
+                      <td className="num-cell">{p.pcs_per_crm}</td>
+                      <td>
+                        <span className="cert-badge">{p.cert_license || 'BSTI'}</span>
+                      </td>
+                      <td className="text-muted" style={{ fontSize: 11 }}>
+                        {p.supplier_name}
+                      </td>
+                      <td>{p.country_of_origin}</td>
+                      <td>
+                        {!isPartnerView ? (
+                          <select
+                            className={`status-select ${
+                              p.enlistment_status === 'enlisted'
+                                ? 'status-ok-sel'
+                                : p.enlistment_status === 'in_review'
+                                ? 'status-review-sel'
+                                : 'status-open-sel'
+                            }`}
+                            value={p.enlistment_status}
+                            onChange={(e) => handleQuickStatusChange(p.id, e.target.value)}
+                          >
+                            <option value="open">Open for Enlistment</option>
+                            <option value="in_review">Under Review</option>
+                            <option value="enlisted">Enlisted & Live</option>
+                            <option value="paused">Paused / Delisted</option>
+                          </select>
+                        ) : (
+                          <span
+                            className={`status-chip ${
+                              p.enlistment_status === 'enlisted'
+                                ? 'status-available'
+                                : p.enlistment_status === 'in_review'
+                                ? 'status-mixed'
+                                : 'status-unavailable'
+                            }`}
+                          >
+                            {p.enlistment_status === 'enlisted'
+                              ? 'Enlisted Live'
+                              : p.enlistment_status === 'in_review'
+                              ? 'Under Review'
+                              : 'Open'}
+                          </span>
                         )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td style={{ textAlign: 'center' }}>
+                        <div className="table-actions-cell">
+                          <button
+                            type="button"
+                            className="icon-action-btn"
+                            onClick={() => setSelectedProduct(p)}
+                            title="Inspect Dossier"
+                          >
+                            <Eye size={14} />
+                          </button>
+
+                          {!isPartnerView && (
+                            <>
+                              <button
+                                type="button"
+                                className="icon-action-btn"
+                                onClick={() => {
+                                  setEditingProduct(p)
+                                  setIsAddEditOpen(true)
+                                }}
+                                title="Edit Specifications"
+                              >
+                                <Edit2 size={14} />
+                              </button>
+
+                              <button
+                                type="button"
+                                className="icon-action-btn delete-btn"
+                                onClick={() => handleDeleteProduct(p.id, p.name)}
+                                title="Delete Product"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
@@ -748,113 +1175,161 @@ export default function EnlistmentHub({
       ) : (
         /* VISUAL CATALOG VIEW */
         <div className="enlist-card-grid">
-          {filteredProducts.map((p) => (
-            <div key={p.id} className="card enlist-card-item">
-              <div className="card-packshot-area" onClick={() => setSelectedProduct(p)}>
-                <img
-                  src={p.image_url || 'https://placehold.co/400x400/101a2d/75a9ff?text=No+Packshot'}
-                  alt={p.name}
-                  className="card-packshot"
-                  onError={(e) => {
-                    ;(e.target as any).src =
-                      'https://placehold.co/400x400/101a2d/75a9ff?text=Packshot'
-                  }}
-                />
-                <span
-                  className={`card-status-badge ${
-                    p.enlistment_status === 'enlisted'
-                      ? 'status-available'
+          {filteredProducts.map((p) => {
+            const isSelected = selectedIds.has(p.id)
+            const targetList = p.target_platforms || []
+            const liveList = p.enlisted_platforms || []
+
+            return (
+              <div
+                key={p.id}
+                className={`card enlist-card-item ${isSelected ? 'card-selected' : ''}`}
+              >
+                {!isPartnerView && (
+                  <div
+                    className="card-checkbox-anchor"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      toggleSelectProduct(p.id)
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => toggleSelectProduct(p.id)}
+                    />
+                  </div>
+                )}
+
+                <div className="card-packshot-area" onClick={() => setSelectedProduct(p)}>
+                  <img
+                    src={p.image_url || 'https://placehold.co/400x400/101a2d/75a9ff?text=No+Packshot'}
+                    alt={p.name}
+                    className="card-packshot"
+                    onError={(e) => {
+                      ;(e.target as any).src =
+                        'https://placehold.co/400x400/101a2d/75a9ff?text=Packshot'
+                    }}
+                  />
+                  <span
+                    className={`card-status-badge ${
+                      p.enlistment_status === 'enlisted'
+                        ? 'status-available'
+                        : p.enlistment_status === 'in_review'
+                        ? 'status-mixed'
+                        : 'status-unavailable'
+                    }`}
+                  >
+                    {p.enlistment_status === 'enlisted'
+                      ? 'Enlisted'
                       : p.enlistment_status === 'in_review'
-                      ? 'status-mixed'
-                      : 'status-unavailable'
-                  }`}
-                >
-                  {p.enlistment_status === 'enlisted'
-                    ? 'Enlisted'
-                    : p.enlistment_status === 'in_review'
-                    ? 'In Review'
-                    : 'Open'}
-                </span>
-              </div>
-
-              <div className="card-body">
-                <div className="card-brand-row">
-                  <span className="card-brand">{p.brand}</span>
-                  <span className="card-cat">{p.category}</span>
+                      ? 'In Review'
+                      : 'Open'}
+                  </span>
                 </div>
 
-                <h4
-                  className="card-title"
-                  onClick={() => setSelectedProduct(p)}
-                  title={p.name}
-                >
-                  {p.name}
-                </h4>
-
-                <div className="card-barcode-line">
-                  <code>{p.barcode}</code>
-                  <button
-                    type="button"
-                    className="copy-mini-btn"
-                    onClick={() => copyText(p.barcode, `card-bar-${p.id}`)}
-                  >
-                    {copiedKey === `card-bar-${p.id}` ? (
-                      <Check size={12} className="text-green" />
-                    ) : (
-                      <Copy size={12} />
-                    )}
-                  </button>
-                </div>
-
-                <div className="card-pricing-strip">
-                  <div>
-                    <small>Trade (TP)</small>
-                    <div>৳{p.tp.toFixed(2)}</div>
+                <div className="card-body">
+                  <div className="card-brand-row">
+                    <span className="card-brand">{p.brand}</span>
+                    <span className="card-cat">{p.category}</span>
                   </div>
-                  <div>
-                    <small>Retail (MRP)</small>
-                    <div className="mrp-val">৳{p.mrp.toFixed(2)}</div>
-                  </div>
-                  <div>
-                    <small>Margin</small>
-                    <div className="margin-val">{p.margin.toFixed(1)}%</div>
-                  </div>
-                </div>
 
-                <div className="card-dims-strip">
-                  📦 {p.dim_length_cm} × {p.dim_depth_cm} × {p.dim_height_cm} cm • {p.pcs_per_crm} pcs/case
-                </div>
-
-                <div className="card-actions">
-                  <button
-                    type="button"
-                    className="ghost-pill-btn"
+                  <h4
+                    className="card-title"
                     onClick={() => setSelectedProduct(p)}
+                    title={p.name}
                   >
-                    Inspect Dossier
-                  </button>
+                    {p.name}
+                  </h4>
 
-                  {!isPartnerView && (
+                  <div className="card-barcode-line">
+                    <code>{p.barcode}</code>
                     <button
                       type="button"
-                      className="icon-action-btn"
-                      onClick={() => {
-                        setEditingProduct(p)
-                        setIsAddEditOpen(true)
-                      }}
-                      title="Edit"
+                      className="copy-mini-btn"
+                      onClick={() => copyText(p.barcode, `card-bar-${p.id}`)}
                     >
-                      <Edit2 size={13} />
+                      {copiedKey === `card-bar-${p.id}` ? (
+                        <Check size={12} className="text-green" />
+                      ) : (
+                        <Copy size={12} />
+                      )}
                     </button>
-                  )}
+                  </div>
+
+                  {/* Platforms on Card */}
+                  <div className="card-platforms-strip">
+                    {targetList.map((plat) => {
+                      const isLive = liveList.includes(plat)
+                      return (
+                        <button
+                          type="button"
+                          key={plat}
+                          className={`plat-live-chip sm ${isLive ? 'live' : 'pending'}`}
+                          disabled={isPartnerView}
+                          onClick={() => handleTogglePlatformEnlisted(p, plat)}
+                          title={
+                            isLive
+                              ? `${plat}: Live (Click to mark pending)`
+                              : `${plat}: Pending (Click to mark live)`
+                          }
+                        >
+                          {isLive ? '✓' : '○'} {plat}
+                        </button>
+                      )
+                    })}
+                  </div>
+
+                  <div className="card-pricing-strip">
+                    <div>
+                      <small>Trade (TP)</small>
+                      <div>৳{p.tp.toFixed(2)}</div>
+                    </div>
+                    <div>
+                      <small>Retail (MRP)</small>
+                      <div className="mrp-val">৳{p.mrp.toFixed(2)}</div>
+                    </div>
+                    <div>
+                      <small>Margin</small>
+                      <div className="margin-val">{p.margin.toFixed(1)}%</div>
+                    </div>
+                  </div>
+
+                  <div className="card-dims-strip">
+                    📦 {p.dim_length_cm} × {p.dim_depth_cm} × {p.dim_height_cm} cm • {p.pcs_per_crm} pcs/case
+                  </div>
+
+                  <div className="card-actions">
+                    <button
+                      type="button"
+                      className="ghost-pill-btn"
+                      onClick={() => setSelectedProduct(p)}
+                    >
+                      Inspect Dossier
+                    </button>
+
+                    {!isPartnerView && (
+                      <button
+                        type="button"
+                        className="icon-action-btn"
+                        onClick={() => {
+                          setEditingProduct(p)
+                          setIsAddEditOpen(true)
+                        }}
+                        title="Edit"
+                      >
+                        <Edit2 size={13} />
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
-      {/* Add / Edit Product Modal */}
+      {/* Add / Edit Single Product Modal */}
       <EnlistmentModal
         isOpen={isAddEditOpen}
         onClose={() => {
@@ -864,9 +1339,19 @@ export default function EnlistmentHub({
         onSave={handleSaveProduct}
         initialData={editingProduct}
         nextSl={products.length + 1}
+        availableAccounts={activeAccountNames}
+        onOpenAccountManager={() => setIsAccountsOpen(true)}
       />
 
-      {/* Detail Inspection Modal */}
+      {/* Bulk Upload Spreadsheet Modal */}
+      <EnlistmentImportModal
+        isOpen={isImportOpen}
+        onClose={() => setIsImportOpen(false)}
+        onSuccess={loadData}
+        availableAccounts={activeAccountNames}
+      />
+
+      {/* Detail Inspection Modal with interactive live toggling */}
       <EnlistmentDetailModal
         product={selectedProduct}
         onClose={() => setSelectedProduct(null)}
@@ -875,6 +1360,7 @@ export default function EnlistmentHub({
           setEditingProduct(p)
           setIsAddEditOpen(true)
         }}
+        onTogglePlatformEnlisted={handleTogglePlatformEnlisted}
       />
 
       {/* Share with Partners Modal */}
@@ -882,6 +1368,16 @@ export default function EnlistmentHub({
         isOpen={isShareOpen}
         onClose={() => setIsShareOpen(false)}
         onSwitchToPartnerView={() => setIsPartnerView(true)}
+        availableAccounts={activeAccountNames}
+      />
+
+      {/* Manage Enlistment Accounts & Retailers Modal */}
+      <EnlistmentAccountsModal
+        isOpen={isAccountsOpen}
+        onClose={() => setIsAccountsOpen(false)}
+        accounts={accounts}
+        onAccountsChange={(updated) => setAccounts(updated)}
+        products={products}
       />
     </div>
   )

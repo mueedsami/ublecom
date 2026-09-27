@@ -11,9 +11,11 @@ interface EnlistmentModalProps {
   onSave: (productData: EnlistmentInput, id?: string) => Promise<void>
   initialData?: EnlistmentProduct | null
   nextSl?: number
+  availableAccounts?: string[]
+  onOpenAccountManager?: () => void
 }
 
-const PLATFORMS_LIST = ['Chaldal', 'Daraz', 'Shwapno', 'PandaMart', 'MeenaClick', 'Pickaboo']
+const PLATFORMS_FALLBACK = ['Chaldal', 'Daraz', 'Shwapno', 'PandaMart', 'MeenaClick']
 
 export default function EnlistmentModal({
   isOpen,
@@ -21,7 +23,12 @@ export default function EnlistmentModal({
   onSave,
   initialData,
   nextSl = 1,
+  availableAccounts = [],
+  onOpenAccountManager,
 }: EnlistmentModalProps) {
+  const [customAccounts, setCustomAccounts] = useState<string[]>([])
+  const [quickAddInput, setQuickAddInput] = useState('')
+  const [isQuickAddOpen, setIsQuickAddOpen] = useState(false)
   const [form, setForm] = useState<EnlistmentInput>({
     sl: nextSl,
     barcode: '',
@@ -77,6 +84,7 @@ export default function EnlistmentModal({
         country_of_origin: initialData.country_of_origin || 'Bangladesh',
         enlistment_status: initialData.enlistment_status || 'open',
         target_platforms: initialData.target_platforms || ['Chaldal', 'Daraz'],
+        enlisted_platforms: initialData.enlisted_platforms || [],
         notes: initialData.notes || '',
       })
     } else {
@@ -103,11 +111,34 @@ export default function EnlistmentModal({
         country_of_origin: 'Bangladesh',
         enlistment_status: 'open',
         target_platforms: ['Chaldal', 'Daraz', 'Shwapno'],
+        enlisted_platforms: [],
         notes: '',
       })
     }
     setError(null)
   }, [initialData, nextSl, isOpen])
+
+  const displayPlatforms = React.useMemo(() => {
+    const base = availableAccounts.length > 0 ? availableAccounts : PLATFORMS_FALLBACK
+    const combined = new Set([...base, ...customAccounts, ...(form.target_platforms || [])])
+    return Array.from(combined)
+  }, [availableAccounts, customAccounts, form.target_platforms])
+
+  function handleQuickAddAccount() {
+    const trimmed = quickAddInput.trim()
+    if (!trimmed) return
+    if (!customAccounts.includes(trimmed)) {
+      setCustomAccounts((prev) => [...prev, trimmed])
+    }
+    if (!form.target_platforms.includes(trimmed)) {
+      setForm((prev) => ({
+        ...prev,
+        target_platforms: [...prev.target_platforms, trimmed],
+      }))
+    }
+    setQuickAddInput('')
+    setIsQuickAddOpen(false)
+  }
 
   function handlePriceChange(field: 'tp' | 'mrp', val: number) {
     const nextTp = field === 'tp' ? val : form.tp
@@ -123,11 +154,36 @@ export default function EnlistmentModal({
   function togglePlatform(p: string) {
     setForm((prev) => {
       const exists = prev.target_platforms.includes(p)
+      const nextTargets = exists
+        ? prev.target_platforms.filter((item) => item !== p)
+        : [...prev.target_platforms, p]
+      const nextEnlisted = (prev.enlisted_platforms || []).filter((item) => nextTargets.includes(item))
       return {
         ...prev,
-        target_platforms: exists
-          ? prev.target_platforms.filter((item) => item !== p)
-          : [...prev.target_platforms, p],
+        target_platforms: nextTargets,
+        enlisted_platforms: nextEnlisted,
+      }
+    })
+  }
+
+  function toggleEnlistedPlatform(p: string) {
+    setForm((prev) => {
+      const current = new Set(prev.enlisted_platforms || [])
+      if (current.has(p)) {
+        current.delete(p)
+      } else {
+        current.add(p)
+      }
+      const nextEnlisted = Array.from(current)
+      const nextTargets = new Set(prev.target_platforms)
+      if (current.has(p)) {
+        nextTargets.add(p)
+      }
+      return {
+        ...prev,
+        target_platforms: Array.from(nextTargets),
+        enlisted_platforms: nextEnlisted,
+        enlistment_status: nextEnlisted.length > 0 ? 'enlisted' : prev.enlistment_status,
       }
     })
   }
@@ -452,9 +508,72 @@ export default function EnlistmentModal({
               </div>
 
               <div className="form-field">
-                <label>Target E-Commerce Platforms</label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <label style={{ margin: 0 }}>Target E-Commerce Accounts & Retailers</label>
+                  <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                    <button
+                      type="button"
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--accent, #38bdf8)',
+                        fontSize: 11,
+                        cursor: 'pointer',
+                        padding: 0,
+                        fontWeight: 500,
+                      }}
+                      onClick={() => setIsQuickAddOpen(!isQuickAddOpen)}
+                    >
+                      {isQuickAddOpen ? '✕ Close' : '+ Custom Account'}
+                    </button>
+                    {onOpenAccountManager && (
+                      <button
+                        type="button"
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: 'var(--muted, #94a3b8)',
+                          fontSize: 11,
+                          cursor: 'pointer',
+                          padding: 0,
+                          fontWeight: 500,
+                        }}
+                        onClick={onOpenAccountManager}
+                      >
+                        ⚙ Manage Accounts
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {isQuickAddOpen && (
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                    <input
+                      type="text"
+                      placeholder="Type new account name & add..."
+                      value={quickAddInput}
+                      onChange={(e) => setQuickAddInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          handleQuickAddAccount()
+                        }
+                      }}
+                      style={{ flex: 1, padding: '4px 8px', fontSize: 12 }}
+                    />
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      style={{ padding: '4px 10px', fontSize: 11 }}
+                      onClick={handleQuickAddAccount}
+                    >
+                      Add
+                    </button>
+                  </div>
+                )}
+
                 <div className="platform-checkbox-strip">
-                  {PLATFORMS_LIST.map((plat) => {
+                  {displayPlatforms.map((plat) => {
                     const checked = form.target_platforms.includes(plat)
                     return (
                       <button
@@ -470,6 +589,32 @@ export default function EnlistmentModal({
                   })}
                 </div>
               </div>
+            </div>
+
+            <div className="form-field" style={{ marginTop: 14 }}>
+              <label>Confirmed Live / Enlisted on Digital Shelf</label>
+              <div className="platform-checkbox-strip">
+                {form.target_platforms.length === 0 ? (
+                  <span className="field-hint">Select target platforms above first</span>
+                ) : (
+                  form.target_platforms.map((plat) => {
+                    const isLive = (form.enlisted_platforms || []).includes(plat)
+                    return (
+                      <button
+                        type="button"
+                        key={plat}
+                        className={`platform-toggle-chip live-chip ${isLive ? 'enlisted-active' : ''}`}
+                        onClick={() => toggleEnlistedPlatform(plat)}
+                        title={isLive ? `Live on ${plat} (Click to mark pending)` : `Pending on ${plat} (Click to mark live)`}
+                      >
+                        {isLive ? <Check size={12} /> : <span style={{ opacity: 0.5 }}>○</span>}
+                        {plat} {isLive ? '(Live)' : '(Pending)'}
+                      </button>
+                    )
+                  })
+                )}
+              </div>
+              <small className="field-hint">Click to mark which accounts have verified and published this product live on shelf</small>
             </div>
           </div>
         )}

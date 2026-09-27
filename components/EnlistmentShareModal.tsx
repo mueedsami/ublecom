@@ -8,24 +8,33 @@ interface EnlistmentShareModalProps {
   isOpen: boolean
   onClose: () => void
   onSwitchToPartnerView: () => void
+  availableAccounts?: string[]
 }
 
-const PLATFORMS = [
-  { id: 'all', name: 'All Partners (General View)' },
-  { id: 'Chaldal', name: 'Chaldal Account Team' },
-  { id: 'Daraz', name: 'Daraz Brand Team' },
-  { id: 'Shwapno', name: 'Shwapno E-Com' },
-  { id: 'PandaMart', name: 'Foodpanda / PandaMart' },
-  { id: 'MeenaClick', name: 'Meena Click' },
+const DEFAULT_PLATFORMS = [
+  'Chaldal',
+  'Daraz',
+  'Shwapno',
+  'PandaMart',
+  'MeenaClick',
 ]
 
 export default function EnlistmentShareModal({
   isOpen,
   onClose,
   onSwitchToPartnerView,
+  availableAccounts = [],
 }: EnlistmentShareModalProps) {
   const [selectedPlatform, setSelectedPlatform] = useState('all')
   const [copied, setCopied] = useState(false)
+
+  const platformsList = React.useMemo(() => {
+    const names = availableAccounts.length > 0 ? availableAccounts : DEFAULT_PLATFORMS
+    return [
+      { id: 'all', name: 'All Partners (General View)' },
+      ...names.map((name) => ({ id: name, name: `${name} Team` })),
+    ]
+  }, [availableAccounts])
 
   if (!isOpen) return null
 
@@ -65,7 +74,7 @@ export default function EnlistmentShareModal({
         <div className="share-field-group">
           <label>Target Partner Platform</label>
           <div className="share-platform-selector">
-            {PLATFORMS.map((plat) => (
+            {platformsList.map((plat) => (
               <button
                 type="button"
                 key={plat.id}
