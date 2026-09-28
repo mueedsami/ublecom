@@ -1,19 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 import * as XLSX from 'xlsx'
+import { getAdminClient, hasServiceRoleKey } from '@/lib/supabaseAdmin'
 import { computeDhFlags, persistDhFlags } from '@/lib/dhFlags'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60 // Allow longer processing for large Excel files
-
-function getAdminClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-  if (!url || !key) {
-    throw new Error('Supabase URL or Key not configured.')
-  }
-  return createClient(url, key)
-}
 
 function cleanText(v: any): string {
   if (v == null) return ''
@@ -167,7 +158,16 @@ export async function POST(req: NextRequest) {
     if (newItemsPayload.length > 0) {
       for (const batch of chunkArray(newItemsPayload, 100)) {
         const { error: insErr } = await supabase.from('dh_items').insert(batch)
-        if (insErr) throw insErr
+        if (insErr) {
+          if (insErr.code === '42501' || insErr.message?.toLowerCase().includes('row-level security')) {
+            throw new Error(
+              `Row-level security policy violation for table "dh_items". ` +
+              `Make sure SUPABASE_SERVICE_ROLE_KEY is set in dashboard/.env.local (and in your Vercel/deployment settings), ` +
+              `or apply migration supabase/013_fix_rls_policies.sql in your Supabase SQL editor.`
+            )
+          }
+          throw insErr
+        }
       }
     }
 

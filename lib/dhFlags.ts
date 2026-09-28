@@ -986,7 +986,7 @@ export async function updateDhFlagStatus(
 /**
  * Full orchestrator to compute and persist DH flags.
  */
-export async function generateDhFlagsPass(): Promise<{
+export async function generateDhFlagsPass(customClient?: any): Promise<{
   success: boolean
   stockDate: string
   saleDate: string
@@ -998,8 +998,9 @@ export async function generateDhFlagsPass(): Promise<{
   resolvedCount: number
   mirroredAlertsCount: number
 }> {
-  const computed = await computeDhFlags(supabase)
-  const persistRes = await persistDhFlags(supabase, computed.flags)
+  const client = customClient || supabase
+  const computed = await computeDhFlags(client)
+  const persistRes = await persistDhFlags(client, computed.flags)
 
   return {
     success: true,

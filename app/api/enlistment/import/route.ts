@@ -1,22 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 import * as XLSX from 'xlsx'
+import { getAdminClient } from '@/lib/supabaseAdmin'
 import { calculateMargin, STANDARD_PLATFORMS, EnlistmentStatus } from '@/lib/enlistmentData'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
-
-function getAdminClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-    ''
-  if (!url || !key) {
-    throw new Error('Supabase URL or Key not configured.')
-  }
-  return createClient(url, key)
-}
 
 function cleanStr(v: any): string {
   if (v == null) return ''
