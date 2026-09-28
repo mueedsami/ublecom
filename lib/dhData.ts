@@ -1,4 +1,5 @@
 import { demoMode, supabase } from './supabase'
+import { getInScopePandamartSkus, computeDhDumpCoverage } from './dhScope'
 
 export type DhStore = {
   id: string
@@ -16,6 +17,9 @@ export type DhItem = {
   basepack_id: string | null
   match_status: 'matched' | 'unmatched' | 'ignored'
   matched_at: string | null
+  last_seen_date?: string | null
+  skip_stats?: any
+  dismissed?: boolean
   created_at?: string
   updated_at?: string
   basepacks?: {
@@ -27,6 +31,16 @@ export type DhItem = {
   sold_qty_30d?: number
   gfv_30d?: number
   total_stock?: number
+}
+
+export type DhCoverageStats = {
+  list_skus_total: number
+  list_skus_found: number
+  list_skus_missing: number
+  dump_skus_total: number
+  dump_skus_skipped: number
+  total_basepacks: number
+  latest_stock_date: string | null
 }
 
 export type DhSummaryStats = {
@@ -41,6 +55,7 @@ export type DhSummaryStats = {
   branch_stock: number
   active_stores: number
   is_schema_installed: boolean
+  coverage?: DhCoverageStats | null
 }
 
 export type DhSalesTrendPoint = {
@@ -112,6 +127,59 @@ async function fetchAllPages<T>(
   return allRows
 }
 
+export async function getDhScopeCoverage(): Promise<DhCoverageStats | null> {
+  const isInstalled = await checkDhSchemaInstalled()
+  if (!isInstalled || !supabase) return null
+  try {
+    const scope = await getInScopePandamartSkus(supabase)
+    const { data: latestStock } = await supabase
+      .from('dh_stock_daily')
+      .select('stock_date')
+      .order('stock_date', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    const stockDate = latestStock?.stock_date || null
+    const dumpSkus = new Set<string>()
+
+    if (stockDate) {
+      const stockItems = await fetchAllPages<{ dh_items: { dh_sku: string } | null }>(
+        (from, to) =>
+          supabase!
+            .from('dh_stock_daily')
+            .select('dh_item_id,dh_items(dh_sku)')
+            .eq('stock_date', stockDate)
+            .range(from, to)
+      )
+      for (const r of stockItems) {
+        const sku = (r.dh_items as any)?.dh_sku
+        if (sku) dumpSkus.add(sku)
+      }
+    }
+
+    if (dumpSkus.size === 0) {
+      const { data: allItems } = await supabase.from('dh_items').select('dh_sku')
+      for (const r of allItems || []) {
+        if (r.dh_sku) dumpSkus.add(r.dh_sku)
+      }
+    }
+
+    const coverage = computeDhDumpCoverage(dumpSkus, scope.skuMap)
+    return {
+      list_skus_total: coverage.list_skus_total,
+      list_skus_found: coverage.list_skus_found,
+      list_skus_missing: coverage.list_skus_missing,
+      dump_skus_total: coverage.dump_skus_total,
+      dump_skus_skipped: coverage.dump_skus_skipped,
+      total_basepacks: scope.totalActiveBasepacks,
+      latest_stock_date: stockDate,
+    }
+  } catch (err) {
+    console.warn('Error fetching DH scope coverage:', err)
+    return null
+  }
+}
+
 export async function getDhSummaryStats(): Promise<DhSummaryStats> {
   const isInstalled = await checkDhSchemaInstalled()
   if (!isInstalled || !supabase) {
@@ -126,18 +194,23 @@ export async function getDhSummaryStats(): Promise<DhSummaryStats> {
 
     if (itemsErr) throw itemsErr
 
-    const total_skus = (items || []).length
     let matched_skus = 0
     let unmatched_skus = 0
     let ignored_skus = 0
+    const matchedItemIds: string[] = []
 
     for (const it of items || []) {
-      if (it.match_status === 'matched') matched_skus++
-      else if (it.match_status === 'ignored') ignored_skus++
-      else unmatched_skus++
+      if (it.match_status === 'matched') {
+        matched_skus++
+        matchedItemIds.push(it.id)
+      } else if (it.match_status === 'ignored') {
+        ignored_skus++
+      } else {
+        unmatched_skus++
+      }
     }
 
-    // 2. Sales last 30d sum (anchored to latest available sale_date to handle uploaded datasets)
+    // 2. Sales last 30d sum (scoped strictly to matched items)
     const { data: latestSaleDateRow } = await supabase
       .from('dh_sales_daily')
       .select('sale_date')
@@ -154,12 +227,16 @@ export async function getDhSummaryStats(): Promise<DhSummaryStats> {
     }
 
     const sales = await fetchAllPages<{ sold_qty: number | null; gfv_local: number | null }>(
-      (from, to) =>
-        supabase!
+      (from, to) => {
+        let q = supabase!
           .from('dh_sales_daily')
           .select('sold_qty,gfv_local')
           .gte('sale_date', thirtyDaysAgo)
-          .range(from, to)
+        if (matchedItemIds.length > 0) {
+          q = q.in('dh_item_id', matchedItemIds)
+        }
+        return q.range(from, to)
+      }
     )
 
     let total_sold_30d = 0
@@ -169,7 +246,7 @@ export async function getDhSummaryStats(): Promise<DhSummaryStats> {
       total_gfv_30d += Number(s.gfv_local || 0)
     }
 
-    // 3. Stock sum latest
+    // 3. Stock sum latest (scoped strictly to matched items)
     const { data: latestStockDateRow } = await supabase
       .from('dh_stock_daily')
       .select('stock_date')
@@ -183,12 +260,16 @@ export async function getDhSummaryStats(): Promise<DhSummaryStats> {
 
     if (latestStockDateRow?.stock_date) {
       const stockRows = await fetchAllPages<{ qty: number | null; dh_store_id: string; dh_stores: { is_dc: boolean } | null }>(
-        (from, to) =>
-          supabase!
+        (from, to) => {
+          let q = supabase!
             .from('dh_stock_daily')
             .select('qty,dh_store_id,dh_stores(is_dc)')
             .eq('stock_date', latestStockDateRow.stock_date)
-            .range(from, to)
+          if (matchedItemIds.length > 0) {
+            q = q.in('dh_item_id', matchedItemIds)
+          }
+          return q.range(from, to)
+        }
       )
 
       for (const st of stockRows) {
@@ -205,8 +286,10 @@ export async function getDhSummaryStats(): Promise<DhSummaryStats> {
       .from('dh_stores')
       .select('id', { head: true, count: 'exact' })
 
+    const coverage = await getDhScopeCoverage()
+
     return {
-      total_skus,
+      total_skus: matched_skus,
       matched_skus,
       unmatched_skus,
       ignored_skus,
@@ -217,6 +300,7 @@ export async function getDhSummaryStats(): Promise<DhSummaryStats> {
       branch_stock,
       active_stores: active_stores || 17,
       is_schema_installed: true,
+      coverage,
     }
   } catch (err) {
     console.warn('Failed to load live DH stats, falling back to preview:', err)
@@ -255,6 +339,16 @@ export async function getDhSalesTrend(filter?: { dhItemId?: string; days?: numbe
     startDate = new Date(Date.now() - (days - 1) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
   }
 
+  // Fetch matched item IDs if not filtering to a specific item
+  let matchedItemIds: string[] = []
+  if (!filter?.dhItemId) {
+    const { data: matchedItems } = await supabase
+      .from('dh_items')
+      .select('id')
+      .eq('match_status', 'matched')
+    matchedItemIds = (matchedItems || []).map(r => r.id)
+  }
+
   // Fetch all pages to prevent Supabase 1,000-row cutoff
   const sales = await fetchAllPages<{ sale_date: string; sold_qty: number | null; gfv_local: number | null }>(
     (from, to) => {
@@ -268,6 +362,8 @@ export async function getDhSalesTrend(filter?: { dhItemId?: string; days?: numbe
       }
       if (filter?.dhItemId) {
         query = query.eq('dh_item_id', filter.dhItemId)
+      } else if (matchedItemIds.length > 0) {
+        query = query.in('dh_item_id', matchedItemIds)
       }
       return query.range(from, to)
     }
@@ -463,7 +559,7 @@ export async function getDhStockMatrix(): Promise<{
   for (const r of stockRecords || []) {
     const item = r.dh_items as any
     const store = storeMap.get(r.dh_store_id)
-    if (!item || !store) continue
+    if (!item || !store || item.match_status !== 'matched') continue
 
     const itemId = r.dh_item_id
     if (!rowMap.has(itemId)) {

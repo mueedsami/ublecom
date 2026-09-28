@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import * as XLSX from 'xlsx'
-import { getAdminClient, hasServiceRoleKey } from '@/lib/supabaseAdmin'
+import { getAdminClient } from '@/lib/supabaseAdmin'
 import { computeDhFlags, persistDhFlags } from '@/lib/dhFlags'
+import {
+  getInScopePandamartSkus,
+  computeDhDumpCoverage,
+  checkDhScopeSchemaInstalled,
+} from '@/lib/dhScope'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60 // Allow longer processing for large Excel files
@@ -17,6 +22,31 @@ function chunkArray<T>(array: T[], size: number): T[][] {
     chunks.push(array.slice(i, i + size))
   }
   return chunks
+}
+
+function parseDateCell(v: any): string {
+  if (v == null) return ''
+  if (v instanceof Date) {
+    const adjusted = new Date(v.getTime() + 12 * 3600 * 1000)
+    return adjusted.toISOString().slice(0, 10)
+  }
+  if (typeof v === 'number') {
+    const d = XLSX.SSF.parse_date_code(v)
+    if (d) {
+      return `${d.y}-${String(d.m).padStart(2, '0')}-${String(d.d).padStart(2, '0')}`
+    }
+  }
+  const clean = cleanText(v)
+  if (/^\d{4}-\d{2}-\d{2}/.test(clean)) {
+    return clean.slice(0, 10)
+  }
+  if (/^\d{1,2}\/\d{1,2}\/\d{2,4}/.test(clean)) {
+    const parts = clean.split(/[\/\s]/)[0].split('/')
+    let y = parts[2]
+    if (y.length === 2) y = '20' + y
+    return `${y}-${parts[0].padStart(2, '0')}-${parts[1].padStart(2, '0')}`
+  }
+  return clean.slice(0, 10)
 }
 
 export async function POST(req: NextRequest) {
@@ -54,22 +84,13 @@ export async function POST(req: NextRequest) {
 
     const supabase = getAdminClient()
 
-    // 1. Collect all DH items
-    const itemsCatalog = new Map<string, string>() // sku -> name
-
-    // Identify sales columns
+    // 1. Identify sales columns
     const firstSale = rawSales[0] || {}
     const saleSkuCol = Object.keys(firstSale).find(k => ['item_id', 'sku', 'item id'].includes(k.toLowerCase())) || 'Item_Id'
     const saleNameCol = Object.keys(firstSale).find(k => ['item_name', 'name', 'item name', 'sku_name'].includes(k.toLowerCase())) || 'Item_Name'
     const saleDateCol = Object.keys(firstSale).find(k => k.toLowerCase() === 'date') || 'Date'
     const saleGfvCol = Object.keys(firstSale).find(k => k.toLowerCase().includes('gfv')) || 'gfv_local'
     const saleQtyCol = Object.keys(firstSale).find(k => k.toLowerCase().includes('sold') || k.toLowerCase().includes('qty')) || 'sold_qty'
-
-    for (const r of rawSales) {
-      const sku = cleanText(r[saleSkuCol])
-      const name = cleanText(r[saleNameCol])
-      if (sku && sku !== 'nan') itemsCatalog.set(sku, name)
-    }
 
     // Identify stock columns
     const firstStock = rawStock[0] || {}
@@ -80,17 +101,92 @@ export async function POST(req: NextRequest) {
     const metaStockCols = new Set([stockSkuCol, stockNameCol, stockDateCol])
     const storeCols = Object.keys(firstStock).filter(k => !metaStockCols.has(k))
 
-    for (const r of rawStock) {
-      const sku = cleanText(r[stockSkuCol])
-      const name = cleanText(r[stockNameCol])
-      if (sku && sku !== 'nan') {
-        if (!itemsCatalog.has(sku) || (name && name.length > (itemsCatalog.get(sku) || '').length)) {
-          itemsCatalog.set(sku, name)
-        }
+    // Collect all unique SKUs & names from dump
+    const itemsCatalog = new Map<string, string>() // sku -> name
+    const skuDumpStats = new Map<string, { sold_qty_30d: number; total_stock: number; last_sale_date: string }>()
+
+    let latestDumpDate = ''
+
+    // Parse sales rows for catalog & stats
+    for (const r of rawSales) {
+      const sku = cleanText(r[saleSkuCol])
+      const name = cleanText(r[saleNameCol])
+      if (!sku || sku === 'nan') continue
+
+      if (!itemsCatalog.has(sku) || (name && name.length > (itemsCatalog.get(sku) || '').length)) {
+        itemsCatalog.set(sku, name)
+      }
+
+      const sDate = parseDateCell(r[saleDateCol])
+      if (sDate && (!latestDumpDate || sDate > latestDumpDate)) {
+        latestDumpDate = sDate
+      }
+
+      const qty = r[saleQtyCol] != null && !isNaN(parseInt(r[saleQtyCol], 10)) ? parseInt(r[saleQtyCol], 10) : 0
+      let cur = skuDumpStats.get(sku)
+      if (!cur) {
+        cur = { sold_qty_30d: 0, total_stock: 0, last_sale_date: sDate }
+        skuDumpStats.set(sku, cur)
+      }
+      cur.sold_qty_30d += qty
+      if (sDate && (!cur.last_sale_date || sDate > cur.last_sale_date)) {
+        cur.last_sale_date = sDate
       }
     }
 
-    // 2. Query existing dh_items in DB to preserve manual tagging
+    // Parse stock rows for catalog & stats
+    for (const r of rawStock) {
+      const sku = cleanText(r[stockSkuCol])
+      const name = cleanText(r[stockNameCol])
+      if (!sku || sku === 'nan') continue
+
+      if (!itemsCatalog.has(sku) || (name && name.length > (itemsCatalog.get(sku) || '').length)) {
+        itemsCatalog.set(sku, name)
+      }
+
+      const sDate = parseDateCell(r[stockDateCol])
+      if (sDate && (!latestDumpDate || sDate > latestDumpDate)) {
+        latestDumpDate = sDate
+      }
+
+      let cur = skuDumpStats.get(sku)
+      if (!cur) {
+        cur = { sold_qty_30d: 0, total_stock: 0, last_sale_date: '' }
+        skuDumpStats.set(sku, cur)
+      }
+
+      for (const stCol of storeCols) {
+        const rawQty = r[stCol]
+        const q = rawQty != null && !isNaN(parseInt(rawQty, 10)) ? parseInt(rawQty, 10) : 0
+        cur.total_stock += q
+      }
+    }
+
+    if (!latestDumpDate) {
+      latestDumpDate = new Date().toISOString().slice(0, 10)
+    }
+
+    // 2. Load the canonical Pandamart legacy SKU scope from account_products
+    const scope = await getInScopePandamartSkus(supabase)
+    const dumpSkus = new Set(itemsCatalog.keys())
+    const coverage = computeDhDumpCoverage(dumpSkus, scope.skuMap)
+
+    // 3. Safety Guard: warn if far fewer than legacy list SKUs are found in the dump
+    if (scope.skuMap.size > 0 && coverage.list_skus_found < 30) {
+      return NextResponse.json(
+        {
+          error:
+            `Safety Guard Triggered: Found only ${coverage.list_skus_found} of ${coverage.list_skus_total} Pandamart legacy SKUs in this dump. ` +
+            `Expected ~200+ matching SKUs. Import aborted to prevent corrupting analytics with an unexpected file format or mismatched account.`,
+        },
+        { status: 400 }
+      )
+    }
+
+    // Check if migration 014 columns (last_seen_date, skip_stats) are available in DB
+    const is014Installed = await checkDhScopeSchemaInstalled(supabase)
+
+    // 4. Query existing dh_items in DB
     const { data: existingItems, error: existingErr } = await supabase
       .from('dh_items')
       .select('id,dh_sku,dh_name,basepack_id,match_status')
@@ -105,54 +201,109 @@ export async function POST(req: NextRequest) {
     }
 
     const existingBySku = new Map<string, any>((existingItems || []).map(r => [r.dh_sku, r]))
+    const nowIso = new Date().toISOString()
 
-    // Fetch Basepacks and Pandamart Account Products for auto-matching
-    const [{ data: basepacks }, { data: pandamartAcc }] = await Promise.all([
-      supabase.from('basepacks').select('id,name'),
-      supabase.from('accounts').select('id').eq('code', 'pandamart').maybeSingle(),
-    ])
+    // Promote or update existing items
+    const itemsToUpdate: any[] = []
+    for (const [sku, item] of existingBySku.entries()) {
+      const inScope = scope.skuMap.get(sku)
+      const isDumpPresent = dumpSkus.has(sku)
+      const stats = skuDumpStats.get(sku)
 
-    const bpByName = new Map<string, string>(
-      (basepacks || []).map(b => [cleanText(b.name).toLowerCase(), b.id])
-    )
-
-    const apBySku = new Map<string, string>()
-    if (pandamartAcc?.id) {
-      const { data: aps } = await supabase
-        .from('account_products')
-        .select('account_sku,basepack_id')
-        .eq('account_id', pandamartAcc.id)
-      for (const ap of aps || []) {
-        if (ap.account_sku && ap.basepack_id) {
-          apBySku.set(cleanText(ap.account_sku), ap.basepack_id)
+      if (inScope) {
+        // On legacy list -> must be 'matched' with correct basepack_id
+        if (item.match_status !== 'matched' || item.basepack_id !== inScope.basepack_id) {
+          const patch: any = {
+            id: item.id,
+            match_status: 'matched',
+            basepack_id: inScope.basepack_id,
+            matched_at: nowIso,
+            updated_at: nowIso,
+          }
+          if (is014Installed && isDumpPresent) {
+            patch.last_seen_date = latestDumpDate
+          }
+          itemsToUpdate.push(patch)
+        } else if (is014Installed && isDumpPresent) {
+          itemsToUpdate.push({
+            id: item.id,
+            last_seen_date: latestDumpDate,
+            updated_at: nowIso,
+          })
+        }
+      } else {
+        // Off-list
+        if (item.match_status !== 'ignored') {
+          const patch: any = {
+            id: item.id,
+            match_status: 'ignored',
+            updated_at: nowIso,
+          }
+          if (is014Installed) {
+            if (isDumpPresent) {
+              patch.last_seen_date = latestDumpDate
+              patch.skip_stats = stats || {}
+            }
+          }
+          itemsToUpdate.push(patch)
+        } else if (is014Installed && isDumpPresent) {
+          itemsToUpdate.push({
+            id: item.id,
+            last_seen_date: latestDumpDate,
+            skip_stats: stats || {},
+            updated_at: nowIso,
+          })
         }
       }
     }
 
-    // Insert new DH items
+    if (itemsToUpdate.length > 0) {
+      for (const batch of chunkArray(itemsToUpdate, 100)) {
+        for (const item of batch) {
+          const { id, ...patch } = item
+          await supabase.from('dh_items').update(patch).eq('id', id)
+        }
+      }
+    }
+
+    // Insert new items from dump
     const newItemsPayload: any[] = []
     let autoMatchedCount = 0
-    const nowIso = new Date().toISOString()
 
     for (const [sku, name] of itemsCatalog.entries()) {
       if (existingBySku.has(sku)) continue
 
-      let matchedBpId: string | null = null
-      if (apBySku.has(sku)) {
-        matchedBpId = apBySku.get(sku)!
-      } else if (bpByName.has(cleanText(name).toLowerCase())) {
-        matchedBpId = bpByName.get(cleanText(name).toLowerCase())!
+      const inScope = scope.skuMap.get(sku)
+      const stats = skuDumpStats.get(sku)
+
+      if (inScope) {
+        autoMatchedCount++
+        const itemObj: any = {
+          dh_sku: sku,
+          dh_name: name,
+          basepack_id: inScope.basepack_id,
+          match_status: 'matched',
+          matched_at: nowIso,
+        }
+        if (is014Installed) {
+          itemObj.last_seen_date = latestDumpDate
+        }
+        newItemsPayload.push(itemObj)
+      } else {
+        const itemObj: any = {
+          dh_sku: sku,
+          dh_name: name,
+          basepack_id: null,
+          match_status: 'ignored',
+          matched_at: null,
+        }
+        if (is014Installed) {
+          itemObj.last_seen_date = latestDumpDate
+          itemObj.skip_stats = stats || {}
+          itemObj.dismissed = false
+        }
+        newItemsPayload.push(itemObj)
       }
-
-      if (matchedBpId) autoMatchedCount++
-
-      newItemsPayload.push({
-        dh_sku: sku,
-        dh_name: name,
-        basepack_id: matchedBpId,
-        match_status: matchedBpId ? 'matched' : 'unmatched',
-        matched_at: matchedBpId ? nowIso : null,
-      })
     }
 
     if (newItemsPayload.length > 0) {
@@ -171,11 +322,14 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Refresh all dh_items
-    const { data: allItems } = await supabase.from('dh_items').select('id,dh_sku')
+    // Refresh all dh_items to get IDs and match_status
+    const { data: allItems } = await supabase.from('dh_items').select('id,dh_sku,match_status')
     const itemIdBySku = new Map<string, string>((allItems || []).map(r => [r.dh_sku, r.id]))
+    const matchedItemIdSet = new Set<string>(
+      (allItems || []).filter(r => r.match_status === 'matched').map(r => r.id)
+    )
 
-    // 3. Upsert stores if missing
+    // 5. Upsert stores if missing
     const { data: existingStores } = await supabase.from('dh_stores').select('id,store_code')
     const storeIdByCode = new Map<string, string>((existingStores || []).map(r => [r.store_code, r.id]))
 
@@ -193,30 +347,17 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 4. Batch upsert sales daily
+    // 6. Batch upsert sales daily — SKIP ANY ITEM THAT IS NOT 'MATCHED'
     const salesMap = new Map<string, any>() // key: sale_date|item_id
     for (const r of rawSales) {
       const sku = cleanText(r[saleSkuCol])
       const itemId = itemIdBySku.get(sku)
       if (!itemId) continue
 
-      let saleDate = ''
-      if (r[saleDateCol] instanceof Date) {
-        // Add 12 hours to safely absorb timezone/leap-second offset and avoid date shifting
-        const adjusted = new Date(r[saleDateCol].getTime() + 12 * 3600 * 1000)
-        saleDate = adjusted.toISOString().slice(0, 10)
-      } else if (typeof r[saleDateCol] === 'string') {
-        const clean = cleanText(r[saleDateCol])
-        if (/^\d{4}-\d{2}-\d{2}/.test(clean)) {
-          saleDate = clean.slice(0, 10)
-        } else if (/^\d{1,2}\/\d{1,2}\/\d{2,4}/.test(clean)) {
-          const parts = clean.split(/[\/\s]/)[0].split('/')
-          if (parts[2].length === 2) parts[2] = '20' + parts[2]
-          saleDate = `${parts[2]}-${parts[0].padStart(2, '0')}-${parts[1].padStart(2, '0')}`
-        } else {
-          saleDate = clean.slice(0, 10)
-        }
-      }
+      // Only write sales records for matched items on the legacy SKU list
+      if (!matchedItemIdSet.has(itemId)) continue
+
+      const saleDate = parseDateCell(r[saleDateCol])
       if (!saleDate) continue
 
       const gfv = r[saleGfvCol] != null && !isNaN(Number(r[saleGfvCol])) ? Number(r[saleGfvCol]) : 0
@@ -241,29 +382,17 @@ export async function POST(req: NextRequest) {
       salesUpserted += batch.length
     }
 
-    // 5. Batch upsert stock daily
+    // 7. Batch upsert stock daily — SKIP ANY ITEM THAT IS NOT 'MATCHED'
     const stockMap = new Map<string, any>() // key: stock_date|item_id|store_id
     for (const r of rawStock) {
       const sku = cleanText(r[stockSkuCol])
       const itemId = itemIdBySku.get(sku)
       if (!itemId) continue
 
-      let stockDate = ''
-      if (r[stockDateCol] instanceof Date) {
-        const adjusted = new Date(r[stockDateCol].getTime() + 12 * 3600 * 1000)
-        stockDate = adjusted.toISOString().slice(0, 10)
-      } else if (typeof r[stockDateCol] === 'string') {
-        const clean = cleanText(r[stockDateCol])
-        if (/^\d{4}-\d{2}-\d{2}/.test(clean)) {
-          stockDate = clean.slice(0, 10)
-        } else if (/^\d{1,2}\/\d{1,2}\/\d{2,4}/.test(clean)) {
-          const parts = clean.split(/[\/\s]/)[0].split('/')
-          if (parts[2].length === 2) parts[2] = '20' + parts[2]
-          stockDate = `${parts[2]}-${parts[0].padStart(2, '0')}-${parts[1].padStart(2, '0')}`
-        } else {
-          stockDate = clean.slice(0, 10)
-        }
-      }
+      // Only write stock records for matched items on the legacy SKU list
+      if (!matchedItemIdSet.has(itemId)) continue
+
+      const stockDate = parseDateCell(r[stockDateCol])
       if (!stockDate) continue
 
       for (const storeCode of storeCols) {
@@ -293,7 +422,7 @@ export async function POST(req: NextRequest) {
       stockUpserted += batch.length
     }
 
-    // 6. Automated DH flagging pass
+    // 8. Automated DH flagging pass (strictly on matched items)
     let flagsSummary: any = null
     try {
       const computed = await computeDhFlags(supabase)
@@ -314,11 +443,20 @@ export async function POST(req: NextRequest) {
       success: true,
       summary: {
         total_catalog_items: itemIdBySku.size,
+        in_scope_items_tracked: matchedItemIdSet.size,
         new_items_added: newItemsPayload.length,
         auto_matched_new: autoMatchedCount,
         sales_records_upserted: salesUpserted,
         stock_records_upserted: stockUpserted,
         active_stores_count: storeCols.length,
+        coverage: {
+          list_skus_total: coverage.list_skus_total,
+          list_skus_found: coverage.list_skus_found,
+          list_skus_missing: coverage.list_skus_missing,
+          dump_skus_total: coverage.dump_skus_total,
+          dump_skus_skipped: coverage.dump_skus_skipped,
+          missing_skus_sample: coverage.missing_from_dump.slice(0, 10),
+        },
         flags: flagsSummary,
       },
     })

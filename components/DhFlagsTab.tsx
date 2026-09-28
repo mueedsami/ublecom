@@ -23,7 +23,7 @@ import {
   ChevronRight,
 } from 'lucide-react'
 import { ResponsiveContainer, LineChart, Line, Tooltip } from 'recharts'
-import { DhFlag, DhFlagsSummary, DhFlagSeverity, DhFlagType, DhFlagStatus } from '@/lib/dhFlags'
+import { DhFlag, DhFlagsSummary, DhFlagSeverity, DhFlagType, DhFlagStatus, StoreHealthRollup } from '@/lib/dhFlags'
 import FlagsDownloadMenu from './dh/FlagsDownloadMenu'
 
 interface DhFlagsTabProps {
@@ -92,6 +92,7 @@ export default function DhFlagsTab({
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null)
   const [storeViewMode, setStoreViewMode] = useState<'compact' | 'expanded'>('compact')
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null)
+  const [drilldownStore, setDrilldownStore] = useState<StoreHealthRollup | null>(null)
 
   async function handleRefreshClick() {
     setIsRefreshing(true)
@@ -334,8 +335,13 @@ export default function DhFlagsTab({
                 <button
                   key={store.store_id}
                   className={`dh-heatstrip-pill ${tone} ${isSelected ? 'selected' : ''}`}
-                  onClick={() => setSelectedStore(isSelected ? null : store.store_code)}
-                  title={`${store.display_name}: ${inStock}% instock (${store.oos_pct}% OOS) · ${store.zero_count} of ${store.total_skus} SKUs dry. Click to filter flags.`}
+                  onClick={() => {
+                    setSelectedStore(isSelected ? null : store.store_code)
+                    if (store.oos_items && store.oos_items.length > 0) {
+                      setDrilldownStore(store)
+                    }
+                  }}
+                  title={`${store.display_name}: ${inStock}% instock (${store.oos_pct}% OOS) · ${store.zero_count} of ${store.total_skus} basepacks dry. Click to view out-of-stock products.`}
                 >
                   <span className={`dh-heatstrip-dot ${tone}`} />
                   <span className="dh-heatstrip-name">
@@ -371,7 +377,7 @@ export default function DhFlagsTab({
                   className={`gauge dh-store-health-gauge ${isSelected ? 'selected' : ''}`}
                   onClick={() => setSelectedStore(isSelected ? null : store.store_code)}
                   style={{ cursor: 'pointer' }}
-                  title={`${store.display_name}: ${inStock}% instock (${oos}% OOS) · ${store.zero_count} dry SKUs. Click to filter flags.`}
+                  title={`${store.display_name}: ${inStock}% instock (${oos}% OOS) · ${store.zero_count} of ${store.total_skus} basepacks dry. Click to filter flags.`}
                 >
                   <div className="gauge-top">
                     <span style={{ fontWeight: 700, fontSize: 12 }}>
@@ -382,13 +388,29 @@ export default function DhFlagsTab({
                   <div className="bar">
                     <i style={{ width: `${Math.max(0, Math.min(100, inStock))}%`, background: barColor }} />
                   </div>
-                  <div className="kpi-delta" style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
+                  <div className="kpi-delta" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11 }}>
                     <span style={{ color: 'var(--muted)' }}>
                       {store.store_code}
                     </span>
-                    <span style={{ color: store.zero_count > 50 ? 'var(--red)' : 'var(--muted)' }}>
-                      {store.zero_count} SKUs dry
-                    </span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setDrilldownStore(store)
+                      }}
+                      style={{
+                        background: 'rgba(255,255,255,0.06)',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: 4,
+                        padding: '2px 6px',
+                        fontSize: 10,
+                        fontWeight: 600,
+                        color: store.zero_count > 0 ? 'var(--amber)' : 'var(--muted)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {store.zero_count} of {store.total_skus} dry &rarr;
+                    </button>
                   </div>
                 </div>
               )
@@ -835,6 +857,134 @@ export default function DhFlagsTab({
           </table>
         </div>
       </div>
+
+      {/* 8. STORE OOS DRILL-DOWN MODAL (§11.2) */}
+      {drilldownStore && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 9999,
+            background: 'rgba(0,0,0,0.8)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 20,
+          }}
+          onClick={() => setDrilldownStore(null)}
+        >
+          <div
+            style={{
+              background: '#12131a',
+              border: '1px solid #272838',
+              borderRadius: 16,
+              width: '100%',
+              maxWidth: 760,
+              maxHeight: '85vh',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '0 20px 40px rgba(0,0,0,0.6)',
+              overflow: 'hidden',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              style={{
+                padding: '16px 20px',
+                borderBottom: '1px solid #272838',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+              }}
+            >
+              <div>
+                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: '#fff' }}>
+                  {drilldownStore.display_name} — Out-of-Stock Scope Products
+                </h3>
+                <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                  {drilldownStore.zero_count} of {drilldownStore.total_skus} basepacks dry ({drilldownStore.oos_pct}% OOS) · Sorted by 30-day network demand
+                </span>
+              </div>
+              <button
+                className="secondary-btn"
+                style={{ padding: '6px 10px', fontSize: 12 }}
+                onClick={() => setDrilldownStore(null)}
+              >
+                ✕ Close
+              </button>
+            </div>
+
+            <div style={{ overflowY: 'auto', padding: '16px 20px', flex: 1 }}>
+              {(!drilldownStore.oos_items || drilldownStore.oos_items.length === 0) ? (
+                <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--muted)' }}>
+                  No out-of-stock items for this store! 100% in-stock.
+                </div>
+              ) : (
+                <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid #272838', color: 'var(--muted)', fontSize: 11, textTransform: 'uppercase' }}>
+                      <th style={{ padding: '8px 10px' }}>Item ID</th>
+                      <th style={{ padding: '8px 10px' }}>Product / Basepack</th>
+                      <th style={{ padding: '8px 10px' }}>Brand</th>
+                      <th style={{ padding: '8px 10px', textAlign: 'right' }}>30d Network Sold</th>
+                      <th style={{ padding: '8px 10px', textAlign: 'center' }}>Dump Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {drilldownStore.oos_items.map((it, idx) => (
+                      <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                        <td style={{ padding: '10px', fontFamily: 'monospace', fontWeight: 700, color: '#fff' }}>
+                          {it.dh_sku}
+                        </td>
+                        <td style={{ padding: '10px' }}>
+                          <div style={{ fontWeight: 600, color: '#e2e8f0' }}>{it.basepack_name}</div>
+                          {it.dh_name && it.dh_name !== it.basepack_name && (
+                            <div style={{ fontSize: 10, color: 'var(--muted)' }}>{it.dh_name}</div>
+                          )}
+                        </td>
+                        <td style={{ padding: '10px', color: '#cbd5e1' }}>
+                          {it.brand || '—'}
+                        </td>
+                        <td style={{ padding: '10px', textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, color: it.sold_qty_30d > 0 ? 'var(--amber)' : 'var(--muted)' }}>
+                          {it.sold_qty_30d.toLocaleString()}
+                        </td>
+                        <td style={{ padding: '10px', textAlign: 'center' }}>
+                          {it.is_missing_row ? (
+                            <span style={{ fontSize: 10, background: 'rgba(255,107,107,0.15)', color: '#ff6b6b', padding: '2px 6px', borderRadius: 4 }}>
+                              Not reported
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: 10, background: 'rgba(255,191,75,0.15)', color: '#ffbf4b', padding: '2px 6px', borderRadius: 4 }}>
+                              0 Stock
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            <div style={{ padding: '12px 20px', borderTop: '1px solid #272838', background: '#0a0a0f', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                Showing {drilldownStore.oos_items?.length || 0} out-of-stock items in {drilldownStore.display_name}
+              </span>
+              <button
+                className="primary-btn"
+                style={{ fontSize: 12, padding: '6px 12px' }}
+                onClick={() => {
+                  setSelectedStore(drilldownStore.store_code)
+                  setDrilldownStore(null)
+                }}
+              >
+                Filter Flags for {drilldownStore.display_name}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

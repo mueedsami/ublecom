@@ -1,6 +1,7 @@
 import { demoMode, supabase } from './supabase'
 import { DH_FLAG_THRESHOLDS } from './dhFlagThresholds'
 import { DhItem, DhStore } from './dhData'
+import { getInScopePandamartSkus } from './dhScope'
 
 export type DhFlagType =
   | 'stockout_risk'
@@ -52,6 +53,17 @@ export interface DhFlag {
   sparkline?: Array<{ date: string; sold_qty: number }>
 }
 
+export interface StoreOosItem {
+  dh_item_id: string
+  dh_sku: string
+  dh_name: string
+  basepack_id: string
+  basepack_name: string
+  brand: string | null
+  sold_qty_30d: number
+  is_missing_row: boolean
+}
+
 export interface StoreHealthRollup {
   store_id: string
   store_code: string
@@ -62,6 +74,7 @@ export interface StoreHealthRollup {
   zero_count: number
   total_skus: number
   severity: 'normal' | 'warning' | 'critical'
+  oos_items?: StoreOosItem[]
 }
 
 export interface DhFlagsSummary {
@@ -126,12 +139,20 @@ export async function computeDhFlags(client: any = supabase): Promise<{
     return getDemoComputedFlags()
   }
 
-  // 1. Fetch metadata and latest dates
-  const [itemsRes, storesRes, latestStockRes, latestSaleRes] = await Promise.all([
-    client.from('dh_items').select('id,dh_sku,dh_name,basepack_id,match_status,basepacks(id,name,brand,category)'),
-    client.from('dh_stores').select('id,store_code,display_name,is_dc,location_id,active').order('is_dc', { ascending: false }).order('display_name', { ascending: true }),
+  // 1. Fetch metadata, latest dates, and Pandamart legacy scope
+  const [itemsRes, storesRes, latestStockRes, latestSaleRes, scope] = await Promise.all([
+    client
+      .from('dh_items')
+      .select('id,dh_sku,dh_name,basepack_id,match_status,basepacks(id,name,brand,category)')
+      .eq('match_status', 'matched'),
+    client
+      .from('dh_stores')
+      .select('id,store_code,display_name,is_dc,location_id,active')
+      .order('is_dc', { ascending: false })
+      .order('display_name', { ascending: true }),
     client.from('dh_stock_daily').select('stock_date').order('stock_date', { ascending: false }).limit(1).maybeSingle(),
     client.from('dh_sales_daily').select('sale_date').order('sale_date', { ascending: false }).limit(1).maybeSingle(),
+    getInScopePandamartSkus(client),
   ])
 
   const stockDate: string = latestStockRes.data?.stock_date || new Date().toISOString().slice(0, 10)
@@ -139,6 +160,7 @@ export async function computeDhFlags(client: any = supabase): Promise<{
 
   const items: any[] = itemsRes.data || []
   const stores: any[] = storesRes.data || []
+  const matchedItemIds = items.map(it => it.id)
   const itemMap = new Map<string, any>(items.map(it => [it.id, it]))
   const storeMap = new Map<string, any>(stores.map(st => [st.id, st]))
   const dcStore = stores.find(st => st.is_dc)
@@ -154,23 +176,31 @@ export async function computeDhFlags(client: any = supabase): Promise<{
   const start30Str = start30Obj.toISOString().slice(0, 10)
   const split15Str = split15Obj.toISOString().slice(0, 10)
 
-  // 3. Fetch stock rows for stockDate and sales rows for 30d window
+  // 3. Fetch stock rows for stockDate and sales rows for 30d window (scoped to matched items)
   const [stockRows, salesRows] = await Promise.all([
     fetchAllPages<{ dh_item_id: string; dh_store_id: string; qty: number }>(
-      (from, to) =>
-        client
+      (from, to) => {
+        let q = client
           .from('dh_stock_daily')
           .select('dh_item_id,dh_store_id,qty')
           .eq('stock_date', stockDate)
-          .range(from, to)
+        if (matchedItemIds.length > 0) {
+          q = q.in('dh_item_id', matchedItemIds)
+        }
+        return q.range(from, to)
+      }
     ),
     fetchAllPages<{ sale_date: string; dh_item_id: string; sold_qty: number; gfv_local: number }>(
-      (from, to) =>
-        client
+      (from, to) => {
+        let q = client
           .from('dh_sales_daily')
           .select('sale_date,dh_item_id,sold_qty,gfv_local')
           .gte('sale_date', start30Str)
-          .range(from, to)
+        if (matchedItemIds.length > 0) {
+          q = q.in('dh_item_id', matchedItemIds)
+        }
+        return q.range(from, to)
+      }
     ),
   ])
 
@@ -209,11 +239,13 @@ export async function computeDhFlags(client: any = supabase): Promise<{
     { total: number; dc: number; branch: number; storeCountInstock: number }
   >()
   const stockByStore = new Map<string, { total: number; zeroCount: number }>()
+  const stockByItemAndStore = new Map<string, number>()
   for (const st of stores) {
     stockByStore.set(st.id, { total: 0, zeroCount: 0 })
   }
 
   for (const row of stockRows) {
+    stockByItemAndStore.set(`${row.dh_item_id}|${row.dh_store_id}`, row.qty || 0)
     let cur = stockByItem.get(row.dh_item_id)
     if (!cur) {
       cur = { total: 0, dc: 0, branch: 0, storeCountInstock: 0 }
@@ -232,6 +264,17 @@ export async function computeDhFlags(client: any = supabase): Promise<{
     if (stStat) {
       stStat.total++
       if (q === 0) stStat.zeroCount++
+    }
+  }
+
+  // Group items by basepack for basepack-level store OOS rollup
+  const itemsByBasepack = new Map<string, any[]>()
+  for (const it of items) {
+    if (it.basepack_id) {
+      if (!itemsByBasepack.has(it.basepack_id)) {
+        itemsByBasepack.set(it.basepack_id, [])
+      }
+      itemsByBasepack.get(it.basepack_id)!.push(it)
     }
   }
 
@@ -483,11 +526,68 @@ export async function computeDhFlags(client: any = supabase): Promise<{
     }
   }
 
-  // 8. Rule f: Store Health Rollup
+  // 8. Rule f: Store Health Rollup (Basepack-level out-of-stock evaluation)
   const storeHealthList: StoreHealthRollup[] = []
   for (const st of branchStores) {
-    const stStat = stockByStore.get(st.id) || { total: 0, zeroCount: 0 }
-    const oosPct = stStat.total > 0 ? Math.round((stStat.zeroCount / stStat.total) * 100) : 0
+    // Branch-specific basepack denominator for 11 scraped branches; full 183 union for remaining branches
+    let targetBasepackIds: Set<string>
+    if (st.location_id && scope.branchBasepacksMap.has(st.location_id)) {
+      targetBasepackIds = scope.branchBasepacksMap.get(st.location_id)!
+    } else {
+      targetBasepackIds = scope.allActiveBasepackIds
+    }
+
+    const totalBasepacks = targetBasepackIds.size || 1
+    let zeroCount = 0
+    const oosItems: StoreOosItem[] = []
+
+    for (const bpId of targetBasepackIds) {
+      const bpItems = itemsByBasepack.get(bpId) || []
+      let totalStockAtStore = 0
+      let hasReportedRow = false
+
+      for (const it of bpItems) {
+        const key = `${it.id}|${st.id}`
+        if (stockByItemAndStore.has(key)) {
+          hasReportedRow = true
+          totalStockAtStore += stockByItemAndStore.get(key)!
+        }
+      }
+
+      if (totalStockAtStore === 0) {
+        zeroCount++
+        if (bpItems.length > 0) {
+          for (const it of bpItems) {
+            oosItems.push({
+              dh_item_id: it.id,
+              dh_sku: it.dh_sku,
+              dh_name: it.dh_name,
+              basepack_id: bpId,
+              basepack_name: it.basepacks?.name || 'Basepack',
+              brand: it.basepacks?.brand || null,
+              sold_qty_30d: salesByItem.get(it.id)?.totalQty || 0,
+              is_missing_row: !hasReportedRow,
+            })
+          }
+        } else {
+          oosItems.push({
+            dh_item_id: `bp_${bpId}`,
+            dh_sku: 'N/A',
+            dh_name: 'Basepack not reported in dump',
+            basepack_id: bpId,
+            basepack_name: 'Basepack',
+            brand: null,
+            sold_qty_30d: 0,
+            is_missing_row: true,
+          })
+        }
+      }
+    }
+
+    // Sort OOS items descending by 30-day network sales so top impact items show first
+    oosItems.sort((a, b) => b.sold_qty_30d - a.sold_qty_30d)
+
+    const oosPct = Math.round((zeroCount / totalBasepacks) * 100)
     const inStockPct = 100 - oosPct
 
     let severity: 'normal' | 'warning' | 'critical' = 'normal'
@@ -502,11 +602,11 @@ export async function computeDhFlags(client: any = supabase): Promise<{
         stock_date: stockDate,
         metrics: {
           oos_pct: oosPct,
-          zero_count: stStat.zeroCount,
-          total_skus: stStat.total,
+          zero_count: zeroCount,
+          total_skus: totalBasepacks,
         },
         title: `${st.display_name} — Critical Out-of-Stock Level (${oosPct}%)`,
-        message: `${oosPct}% of the tracked catalog (${stStat.zeroCount}/${stStat.total} SKUs) is currently out of stock in ${st.display_name}. Urgent stock replenishment required.`,
+        message: `${oosPct}% of the legacy list (${zeroCount}/${totalBasepacks} basepacks) is currently out of stock in ${st.display_name}. Urgent stock replenishment required.`,
         status: 'open',
         first_detected_at: nowIso,
         last_seen_at: nowIso,
@@ -524,11 +624,11 @@ export async function computeDhFlags(client: any = supabase): Promise<{
         stock_date: stockDate,
         metrics: {
           oos_pct: oosPct,
-          zero_count: stStat.zeroCount,
-          total_skus: stStat.total,
+          zero_count: zeroCount,
+          total_skus: totalBasepacks,
         },
         title: `${st.display_name} — Elevated Out-of-Stock Level (${oosPct}%)`,
-        message: `${oosPct}% of items (${stStat.zeroCount}/${stStat.total} SKUs) are at zero stock in ${st.display_name}.`,
+        message: `${oosPct}% of basepacks (${zeroCount}/${totalBasepacks}) are at zero stock in ${st.display_name}.`,
         status: 'open',
         first_detected_at: nowIso,
         last_seen_at: nowIso,
@@ -544,16 +644,48 @@ export async function computeDhFlags(client: any = supabase): Promise<{
       is_dc: false,
       oos_pct: oosPct,
       in_stock_pct: inStockPct,
-      zero_count: stStat.zeroCount,
-      total_skus: stStat.total,
+      zero_count: zeroCount,
+      total_skus: totalBasepacks,
       severity,
+      oos_items: oosItems,
     })
   }
 
   // Add Central DC to store health list as well
   if (dcStore) {
-    const dcStat = stockByStore.get(dcStore.id) || { total: 0, zeroCount: 0 }
-    const dcOosPct = dcStat.total > 0 ? Math.round((dcStat.zeroCount / dcStat.total) * 100) : 0
+    const totalDcBasepacks = scope.allActiveBasepackIds.size || 1
+    let dcZeroCount = 0
+    const dcOosItems: StoreOosItem[] = []
+
+    for (const bpId of scope.allActiveBasepackIds) {
+      const bpItems = itemsByBasepack.get(bpId) || []
+      let totalDcStock = 0
+      let hasReportedRow = false
+      for (const it of bpItems) {
+        const key = `${it.id}|${dcStore.id}`
+        if (stockByItemAndStore.has(key)) {
+          hasReportedRow = true
+          totalDcStock += stockByItemAndStore.get(key)!
+        }
+      }
+      if (totalDcStock === 0) {
+        dcZeroCount++
+        for (const it of bpItems) {
+          dcOosItems.push({
+            dh_item_id: it.id,
+            dh_sku: it.dh_sku,
+            dh_name: it.dh_name,
+            basepack_id: bpId,
+            basepack_name: it.basepacks?.name || 'Basepack',
+            brand: it.basepacks?.brand || null,
+            sold_qty_30d: salesByItem.get(it.id)?.totalQty || 0,
+            is_missing_row: !hasReportedRow,
+          })
+        }
+      }
+    }
+    dcOosItems.sort((a, b) => b.sold_qty_30d - a.sold_qty_30d)
+    const dcOosPct = Math.round((dcZeroCount / totalDcBasepacks) * 100)
     storeHealthList.unshift({
       store_id: dcStore.id,
       store_code: dcStore.store_code,
@@ -561,9 +693,10 @@ export async function computeDhFlags(client: any = supabase): Promise<{
       is_dc: true,
       oos_pct: dcOosPct,
       in_stock_pct: 100 - dcOosPct,
-      zero_count: dcStat.zeroCount,
-      total_skus: dcStat.total,
+      zero_count: dcZeroCount,
+      total_skus: totalDcBasepacks,
       severity: dcOosPct > 45 ? 'critical' : dcOosPct > 30 ? 'warning' : 'normal',
+      oos_items: dcOosItems,
     })
   }
 
@@ -749,6 +882,29 @@ export async function persistDhFlags(client: any, computedFlags: DhFlag[]): Prom
   if (newAlertsToMirror.length > 0) {
     const { error: alertErr } = await client.from('alerts').insert(newAlertsToMirror)
     if (alertErr) console.warn('alerts mirror insert warning:', alertErr)
+  }
+
+  // 4. Resolve any open flags on items that are out of scope (not matched in dh_items)
+  try {
+    const { data: outOfScopeItems } = await client
+      .from('dh_items')
+      .select('id')
+      .neq('match_status', 'matched')
+
+    if (outOfScopeItems && outOfScopeItems.length > 0) {
+      const outIds = outOfScopeItems.map((r: any) => r.id)
+      await client
+        .from('dh_flags')
+        .update({
+          status: 'resolved',
+          resolved_at: nowIso,
+          message: 'Flag automatically resolved because item is no longer in active SKU scope.',
+        })
+        .in('dh_item_id', outIds)
+        .eq('status', 'open')
+    }
+  } catch (err) {
+    console.warn('Error resolving out-of-scope flags in persistDhFlags:', err)
   }
 
   return {

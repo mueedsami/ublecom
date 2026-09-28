@@ -409,5 +409,71 @@ export async function toExcelWorkbook(
     })
   }
 
+  // -------------------------------------------------------------
+  // TAB 3: Store OOS Worksheet (§11.2)
+  // -------------------------------------------------------------
+  if (options.summary?.store_health && options.summary.store_health.length > 0) {
+    const oosWs = workbook.addWorksheet('Store OOS', {
+      pageSetup: { orientation: 'landscape', paperSize: 9 },
+    })
+
+    oosWs.columns = [
+      { header: 'Store Code', key: 'store_code', width: 16 },
+      { header: 'Store Name', key: 'store_name', width: 22 },
+      { header: 'Store OOS %', key: 'oos_pct', width: 14 },
+      { header: 'Item ID (SKU)', key: 'sku', width: 16 },
+      { header: 'Basepack Name', key: 'basepack_name', width: 38 },
+      { header: 'Brand', key: 'brand', width: 18 },
+      { header: 'Dump Product Name', key: 'product_name', width: 38 },
+      { header: '30d Network Demand (Units)', key: 'sold_qty_30d', width: 24 },
+      { header: 'Store Stock Status', key: 'status', width: 18 },
+    ]
+
+    const oosHeader = oosWs.getRow(1)
+    oosHeader.height = 28
+    oosHeader.eachCell((cell) => {
+      cell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FFFFFFFF' } }
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } }
+      cell.alignment = { vertical: 'middle', horizontal: 'left' }
+      cell.border = { bottom: { style: 'medium', color: { argb: 'FF0F172A' } } }
+    })
+    oosWs.views = [{ state: 'frozen', ySplit: 1 }]
+    oosWs.autoFilter = 'A1:I1'
+
+    let oosRowIdx = 1
+    for (const st of options.summary.store_health) {
+      if (!st.oos_items || st.oos_items.length === 0) continue
+
+      for (const it of st.oos_items) {
+        oosRowIdx++
+        const r = oosWs.getRow(oosRowIdx)
+        r.height = 20
+        r.values = {
+          store_code: st.store_code,
+          store_name: st.display_name,
+          oos_pct: `${st.oos_pct}%`,
+          sku: it.dh_sku,
+          basepack_name: it.basepack_name,
+          brand: it.brand || '',
+          product_name: it.dh_name,
+          sold_qty_30d: it.sold_qty_30d,
+          status: it.is_missing_row ? 'Not Reported' : '0 Stock',
+        }
+        r.font = { name: 'Segoe UI', size: 9.5 }
+        r.alignment = { vertical: 'middle' }
+        r.getCell('sold_qty_30d').alignment = { vertical: 'middle', horizontal: 'right' }
+        r.getCell('sold_qty_30d').numFmt = '#,##0'
+        r.getCell('oos_pct').alignment = { vertical: 'middle', horizontal: 'center' }
+        r.getCell('status').alignment = { vertical: 'middle', horizontal: 'center' }
+
+        ;['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'].forEach((col) => {
+          r.getCell(col).border = {
+            bottom: { style: 'thin', color: { argb: 'FFF1F5F9' } },
+          }
+        })
+      }
+    }
+  }
+
   return workbook
 }

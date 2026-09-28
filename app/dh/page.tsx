@@ -2,9 +2,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import Header from '@/components/Header'
 import Loading from '@/components/Loading'
-import DhTagModal from '@/components/DhTagModal'
 import {
-  DhItem,
   DhSalesTrendPoint,
   DhStockMatrixRow,
   DhStore,
@@ -12,28 +10,16 @@ import {
   getDhSalesTrend,
   getDhStockMatrix,
   getDhSummaryStats,
-  listDhCatalog,
-  listDhStores,
-  listUnmatchedItems,
 } from '@/lib/dhData'
 import {
   BarChart3,
-  Boxes,
   CheckCircle2,
-  Database,
   FileSpreadsheet,
-  Layers,
-  PackageCheck,
-  RefreshCw,
   Search,
-  Sparkles,
-  Tag,
-  TrendingUp,
   UploadCloud,
   AlertTriangle,
-  Building2,
-  ExternalLink,
   ShieldAlert,
+  Package,
 } from 'lucide-react'
 import {
   ResponsiveContainer,
@@ -46,6 +32,7 @@ import {
   Legend,
 } from 'recharts'
 import DhFlagsTab from '@/components/DhFlagsTab'
+import DhScopePanel from '@/components/DhScopePanel'
 import {
   DhFlag,
   DhFlagsSummary,
@@ -57,7 +44,7 @@ import {
 } from '@/lib/dhFlags'
 
 export default function DhPage() {
-  const [activeTab, setActiveTab] = useState<'analytics' | 'flags' | 'tagging' | 'import'>('analytics')
+  const [activeTab, setActiveTab] = useState<'analytics' | 'flags' | 'scope' | 'import'>('analytics')
   const [stats, setStats] = useState<DhSummaryStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -77,12 +64,6 @@ export default function DhPage() {
   const [trendMetric, setTrendMetric] = useState<'sold_qty' | 'gfv_local'>('gfv_local')
   const [stockSearch, setStockSearch] = useState('')
 
-  // Tagging Tab State
-  const [catalog, setCatalog] = useState<DhItem[]>([])
-  const [catalogFilter, setCatalogFilter] = useState<'all' | 'unmatched' | 'matched' | 'ignored'>('unmatched')
-  const [catalogSearch, setCatalogSearch] = useState('')
-  const [selectedTagItem, setSelectedTagItem] = useState<DhItem | null>(null)
-
   // Upload Tab State
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [importing, setImporting] = useState(false)
@@ -94,18 +75,16 @@ export default function DhPage() {
     setLoading(true)
     setError(null)
     try {
-      const [sData, trendData, matrixData, catData, flagsData, flagsInstalled] = await Promise.all([
+      const [sData, trendData, matrixData, flagsData, flagsInstalled] = await Promise.all([
         getDhSummaryStats(),
         getDhSalesTrend(),
         getDhStockMatrix(),
-        listDhCatalog({ status: catalogFilter === 'all' ? undefined : catalogFilter }),
         getDhFlags(),
         checkDhFlagsSchemaInstalled(),
       ])
       setStats(sData)
       setSalesTrend(trendData)
       setStockMatrix(matrixData)
-      setCatalog(catData)
       setFlags(flagsData.flags)
       setFlagsSummary(flagsData.summary)
       setIsFlagsSchemaInstalled(flagsInstalled)
@@ -150,39 +129,6 @@ export default function DhPage() {
   useEffect(() => {
     loadData()
   }, [])
-
-  // Refresh catalog when filter changes
-  useEffect(() => {
-    async function filterChange() {
-      try {
-        if (catalogFilter === 'unmatched') {
-          const res = await listUnmatchedItems()
-          setCatalog(res)
-        } else {
-          const res = await listDhCatalog({
-            status: catalogFilter === 'all' ? undefined : catalogFilter,
-          })
-          setCatalog(res)
-        }
-      } catch (err) {
-        console.error(err)
-      }
-    }
-    filterChange()
-  }, [catalogFilter])
-
-  // Filtered catalog by search
-  const filteredCatalog = useMemo(() => {
-    if (!catalogSearch.trim()) return catalog
-    const q = catalogSearch.toLowerCase().trim()
-    return catalog.filter(
-      (item) =>
-        item.dh_sku.toLowerCase().includes(q) ||
-        item.dh_name.toLowerCase().includes(q) ||
-        item.basepacks?.name.toLowerCase().includes(q) ||
-        item.basepacks?.brand?.toLowerCase().includes(q)
-    )
-  }, [catalog, catalogSearch])
 
   // Filtered stock matrix rows
   const filteredStockRows = useMemo(() => {
@@ -298,6 +244,109 @@ export default function DhPage() {
         </div>
       )}
 
+      {/* Pandamart SKU Scope Coverage Banner */}
+      {stats?.coverage && (
+        <div
+          style={{
+            background: 'linear-gradient(90deg, rgba(50,209,195,.1), rgba(47,125,255,.08))',
+            border: '1px solid rgba(50,209,195,.28)',
+            borderRadius: 12,
+            padding: '12px 18px',
+            marginBottom: 16,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 16,
+            flexWrap: 'wrap',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div
+              style={{
+                width: 38,
+                height: 38,
+                borderRadius: 10,
+                background: 'rgba(50,209,195,.18)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'var(--teal)',
+                flexShrink: 0,
+              }}
+            >
+              <Package size={20} />
+            </div>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span style={{ fontWeight: 800, fontSize: 13, color: '#fff' }}>
+                  Pandamart SKU Scope Active:
+                </span>
+                <span style={{ fontSize: 13, color: 'var(--teal)', fontWeight: 800 }}>
+                  {stats.coverage.list_skus_found} of {stats.coverage.list_skus_total} List SKUs Found
+                </span>
+                <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                  ({stats.coverage.total_basepacks} mapped Unilever basepacks)
+                </span>
+              </div>
+              <div style={{ fontSize: 11, color: '#9db4d4', marginTop: 2 }}>
+                Restricting DH sales, store stock, and operational flags exclusively to the canonical legacy Pandamart catalog.
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span
+              style={{
+                background: 'rgba(68,209,122,.15)',
+                border: '1px solid rgba(68,209,122,.3)',
+                color: '#44d17a',
+                padding: '4px 10px',
+                borderRadius: 999,
+                fontSize: 11,
+                fontWeight: 700,
+              }}
+            >
+              ✓ {stats.coverage.list_skus_found} Tracked in Dump
+            </span>
+            {stats.coverage.list_skus_missing > 0 && (
+              <span
+                style={{
+                  background: 'rgba(255,191,75,.15)',
+                  border: '1px solid rgba(255,191,75,.3)',
+                  color: '#ffd071',
+                  padding: '4px 10px',
+                  borderRadius: 999,
+                  fontSize: 11,
+                  fontWeight: 700,
+                }}
+              >
+                ⚠ {stats.coverage.list_skus_missing} Missing from Dump
+              </span>
+            )}
+            <span
+              style={{
+                background: 'rgba(114,132,162,.15)',
+                border: '1px solid rgba(114,132,162,.3)',
+                color: '#b0c4de',
+                padding: '4px 10px',
+                borderRadius: 999,
+                fontSize: 11,
+                fontWeight: 700,
+              }}
+            >
+              ⊘ {stats.coverage.dump_skus_skipped} Dump SKUs Skipped
+            </span>
+            <button
+              className="ghost-btn"
+              style={{ fontSize: 11, padding: '5px 12px' }}
+              onClick={() => setActiveTab('scope')}
+            >
+              Manage Scope →
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Navigation Tabs */}
       <div className="dh-tabs">
         <button
@@ -331,26 +380,27 @@ export default function DhPage() {
         </button>
 
         <button
-          className={`dh-tab-btn ${activeTab === 'tagging' ? 'active' : ''}`}
-          onClick={() => setActiveTab('tagging')}
+          className={`dh-tab-btn ${activeTab === 'scope' ? 'active' : ''}`}
+          onClick={() => setActiveTab('scope')}
         >
-          <Tag size={16} />
-          Catalog &amp; Tagging Hub
-          {stats && stats.unmatched_skus > 0 && (
+          <Package size={16} />
+          Pandamart SKU Scope
+          {stats && (
             <span
               style={{
-                background: 'rgba(255,102,115,.25)',
-                color: '#ff8a94',
+                background: 'rgba(50,209,195,.18)',
+                color: 'var(--teal)',
                 padding: '2px 7px',
                 borderRadius: 999,
                 fontSize: 10,
                 fontWeight: 900,
               }}
             >
-              {stats.unmatched_skus} open
+              {stats.matched_skus} scoped
             </span>
           )}
         </button>
+
         <button
           className={`dh-tab-btn ${activeTab === 'import' ? 'active' : ''}`}
           onClick={() => setActiveTab('import')}
@@ -483,13 +533,22 @@ export default function DhPage() {
                       </div>
                     </div>
 
-                    <div className="card">
-                      <div className="kpi-label">Basepack Match Rate</div>
-                      <div className="kpi-value" style={{ color: matchRate > 75 ? 'var(--green)' : 'var(--amber)' }}>
-                        {matchRate}%
+                    <div
+                      className="card"
+                      onClick={() => setActiveTab('scope')}
+                      style={{ cursor: 'pointer' }}
+                      title="Click to view Pandamart SKU Scope & Coverage"
+                    >
+                      <div className="kpi-label">Catalog Scope Coverage</div>
+                      <div className="kpi-value text-teal">
+                        {stats?.coverage ? `${stats.coverage.list_skus_found}/${stats.coverage.list_skus_total}` : `${matchRate}%`}
                       </div>
                       <div className="kpi-delta">
-                        {stats?.matched_skus || 0} mapped / {stats?.unmatched_skus || 0} open
+                        {stats?.coverage ? (
+                          <span>{stats.coverage.total_basepacks} basepacks ({stats.coverage.dump_skus_skipped} off-list skipped)</span>
+                        ) : (
+                          <span>{stats?.matched_skus || 0} mapped / {stats?.unmatched_skus || 0} open</span>
+                        )}
                       </div>
                     </div>
 
@@ -695,193 +754,9 @@ export default function DhPage() {
             </div>
           )}
 
-          {/* TAB 2: CATALOG & TAGGING HUB */}
-          {activeTab === 'tagging' && (
-            <div style={{ display: 'grid', gap: 16 }}>
-              {/* Priority Explainer Banner */}
-              <div
-                style={{
-                  background: 'linear-gradient(90deg, rgba(47,125,255,.12), rgba(50,209,195,.08))',
-                  border: '1px solid #2f5485',
-                  borderRadius: 12,
-                  padding: '12px 18px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 12,
-                  flexWrap: 'wrap',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <Sparkles size={18} color="var(--teal)" style={{ flexShrink: 0 }} />
-                  <div style={{ fontSize: 12, color: '#dbe7f7' }}>
-                    <b>Priority Tagging Engine:</b> Unmatched SKUs are automatically prioritized by their{' '}
-                    <b>30-day sales volume</b> via view <code>v_dh_unmatched_items</code>. Tag high-selling items first to
-                    maximize digital shelf visibility.
-                  </div>
-                </div>
-              </div>
-
-              {/* Filter Toolbar */}
-              <div className="master-toolbar">
-                <div style={{ position: 'relative', flex: 1, minWidth: 260 }}>
-                  <input
-                    type="search"
-                    placeholder="Search by DH SKU, product title, or mapped basepack..."
-                    value={catalogSearch}
-                    onChange={(e) => setCatalogSearch(e.target.value)}
-                  />
-                  <Search
-                    size={15}
-                    style={{ position: 'absolute', right: 12, top: 13, color: 'var(--muted)' }}
-                  />
-                </div>
-
-                <div className="mini-tabs" style={{ padding: 4 }}>
-                  <button
-                    className={catalogFilter === 'unmatched' ? 'active' : ''}
-                    onClick={() => setCatalogFilter('unmatched')}
-                  >
-                    Unmatched ({stats?.unmatched_skus || 0})
-                  </button>
-                  <button
-                    className={catalogFilter === 'matched' ? 'active' : ''}
-                    onClick={() => setCatalogFilter('matched')}
-                  >
-                    Matched ({stats?.matched_skus || 0})
-                  </button>
-                  <button
-                    className={catalogFilter === 'all' ? 'active' : ''}
-                    onClick={() => setCatalogFilter('all')}
-                  >
-                    All SKUs ({stats?.total_skus || 0})
-                  </button>
-                  <button
-                    className={catalogFilter === 'ignored' ? 'active' : ''}
-                    onClick={() => setCatalogFilter('ignored')}
-                  >
-                    Ignored ({stats?.ignored_skus || 0})
-                  </button>
-                </div>
-
-                <span className="count-pill">
-                  {filteredCatalog.length} Displayed
-                </span>
-              </div>
-
-              {/* Items Table */}
-              <div className="card">
-                <div className="table-wrap">
-                  <table className="table">
-                    <thead>
-                      <tr>
-                        <th>DH SKU</th>
-                        <th>Pandamart Product Title</th>
-                        <th>30D Sales Volume</th>
-                        <th>Mapped Master Basepack</th>
-                        <th>Status</th>
-                        <th style={{ textAlign: 'right' }}>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredCatalog.length === 0 ? (
-                        <tr>
-                          <td colSpan={6} style={{ textAlign: 'center', padding: 32, color: 'var(--muted)' }}>
-                            No items found matching the selected filter.
-                          </td>
-                        </tr>
-                      ) : (
-                        filteredCatalog.map((item) => (
-                          <tr key={item.id}>
-                            <td>
-                              <code style={{ color: 'var(--teal)', fontWeight: 700 }}>
-                                {item.dh_sku}
-                              </code>
-                            </td>
-                            <td>
-                              <div style={{ fontWeight: 600, color: 'var(--text)', maxWidth: 380 }}>
-                                {item.dh_name}
-                              </div>
-                            </td>
-                            <td>
-                              {item.sold_qty_30d != null ? (
-                                <div style={{ display: 'grid', gap: 1 }}>
-                                  <b style={{ color: '#fff', fontSize: 13 }}>
-                                    {item.sold_qty_30d.toLocaleString()} units
-                                  </b>
-                                  {item.gfv_30d ? (
-                                    <small style={{ color: 'var(--muted)', fontSize: 10 }}>
-                                      ৳{Number(item.gfv_30d).toLocaleString()} GFV
-                                    </small>
-                                  ) : null}
-                                </div>
-                              ) : (
-                                <span style={{ color: 'var(--muted)' }}>—</span>
-                              )}
-                            </td>
-                            <td>
-                              {item.basepacks ? (
-                                <div style={{ display: 'grid', gap: 2 }}>
-                                  <b style={{ color: '#e0ecff', fontSize: 12 }}>
-                                    {item.basepacks.name}
-                                  </b>
-                                  <div style={{ display: 'flex', gap: 6, fontSize: 10 }}>
-                                    <span style={{ color: 'var(--teal)' }}>{item.basepacks.brand}</span>
-                                    {item.basepacks.category && (
-                                      <span style={{ color: 'var(--muted)' }}>
-                                        • {item.basepacks.category}
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
-                              ) : (
-                                <span style={{ color: 'var(--muted)', fontStyle: 'italic' }}>
-                                  Not linked
-                                </span>
-                              )}
-                            </td>
-                            <td>
-                              <span
-                                className={`status ${
-                                  item.match_status === 'matched'
-                                    ? 'ok'
-                                    : item.match_status === 'ignored'
-                                    ? 'bad'
-                                    : 'warn'
-                                }`}
-                              >
-                                <i className="dot" />
-                                {item.match_status === 'matched'
-                                  ? 'Matched'
-                                  : item.match_status === 'ignored'
-                                  ? 'Ignored'
-                                  : 'Unmatched'}
-                              </span>
-                            </td>
-                            <td style={{ textAlign: 'right' }}>
-                              <button
-                                className={item.match_status === 'matched' ? 'ghost-btn' : 'primary'}
-                                style={{
-                                  fontSize: 11,
-                                  padding: '6px 12px',
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: 5,
-                                }}
-                                onClick={() => setSelectedTagItem(item)}
-                              >
-                                <Tag size={13} />
-                                {item.match_status === 'matched' ? 'Edit Tag' : 'Tag Basepack'}
-                              </button>
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
+          {/* TAB 2: PANDAMART SKU SCOPE & CATALOG */}
+          {activeTab === 'scope' && (
+            <DhScopePanel onScopeChanged={loadData} />
           )}
 
           {/* TAB 3: DAILY UPLOAD & INGEST */}
@@ -1012,15 +887,6 @@ export default function DhPage() {
             </div>
           )}
         </>
-      )}
-
-      {/* Tag Modal */}
-      {selectedTagItem && (
-        <DhTagModal
-          item={selectedTagItem}
-          onClose={() => setSelectedTagItem(null)}
-          onSuccess={() => loadData()}
-        />
       )}
     </>
   )
