@@ -24,6 +24,7 @@ import EnlistmentDetailModal from '@/components/EnlistmentDetailModal'
 import EnlistmentShareModal from '@/components/EnlistmentShareModal'
 import EnlistmentImportModal from '@/components/EnlistmentImportModal'
 import EnlistmentAccountsModal from '@/components/EnlistmentAccountsModal'
+import EnlistmentLiveConfirmModal, { PlatformConfirmTarget } from '@/components/EnlistmentLiveConfirmModal'
 import {
   Search,
   Plus,
@@ -84,6 +85,10 @@ export default function EnlistmentHub({
   const [selectedProduct, setSelectedProduct] = useState<EnlistmentProduct | null>(null)
   const [isShareOpen, setIsShareOpen] = useState(false)
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
+
+  // Live shelf confirmation modal state
+  const [confirmTarget, setConfirmTarget] = useState<PlatformConfirmTarget | null>(null)
+  const [confirmBusy, setConfirmBusy] = useState(false)
 
   // Bulk Selection State
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -301,16 +306,37 @@ export default function EnlistmentHub({
     }
   }
 
-  // Per-Platform live status toggle
-  async function handleTogglePlatformEnlisted(product: EnlistmentProduct, platform: string) {
+  // Per-Platform live status toggle with confirmation modal
+  function handleRequestTogglePlatform(product: EnlistmentProduct, platform: string) {
+    if (isPartnerView) return
+    const isLive = (product.enlisted_platforms || []).includes(platform)
+    setConfirmTarget({
+      product,
+      platform,
+      isCurrentlyLive: isLive,
+    })
+  }
+
+  async function handleConfirmTogglePlatform() {
+    if (!confirmTarget) return
+    setConfirmBusy(true)
     try {
-      const updated = await togglePlatformEnlisted(product, platform)
+      const updated = await togglePlatformEnlisted(confirmTarget.product, confirmTarget.platform)
       setProducts((prev) => prev.map((p) => (p.id === updated.id ? updated : p)))
       if (selectedProduct && selectedProduct.id === updated.id) {
         setSelectedProduct(updated)
       }
+      setConfirmTarget(null)
     } catch (err: any) {
       alert(`Failed to update platform enlistment status: ${err.message || err}`)
+    } finally {
+      setConfirmBusy(false)
+    }
+  }
+
+  function handleCancelTogglePlatform() {
+    if (!confirmBusy) {
+      setConfirmTarget(null)
     }
   }
 
@@ -1014,7 +1040,7 @@ export default function EnlistmentHub({
                                     isPartnerView ? 'read-only' : ''
                                   }`}
                                   disabled={isPartnerView}
-                                  onClick={() => handleTogglePlatformEnlisted(p, plat)}
+                                  onClick={() => handleRequestTogglePlatform(p, plat)}
                                   title={
                                     isPartnerView
                                       ? isLive
@@ -1267,7 +1293,7 @@ export default function EnlistmentHub({
                           key={plat}
                           className={`plat-live-chip sm ${isLive ? 'live' : 'pending'}`}
                           disabled={isPartnerView}
-                          onClick={() => handleTogglePlatformEnlisted(p, plat)}
+                          onClick={() => handleRequestTogglePlatform(p, plat)}
                           title={
                             isLive
                               ? `${plat}: Live (Click to mark pending)`
@@ -1360,7 +1386,7 @@ export default function EnlistmentHub({
           setEditingProduct(p)
           setIsAddEditOpen(true)
         }}
-        onTogglePlatformEnlisted={handleTogglePlatformEnlisted}
+        onTogglePlatformEnlisted={handleRequestTogglePlatform}
       />
 
       {/* Share with Partners Modal */}
@@ -1378,6 +1404,14 @@ export default function EnlistmentHub({
         accounts={accounts}
         onAccountsChange={(updated) => setAccounts(updated)}
         products={products}
+      />
+
+      {/* Live Shelf Confirmation Modal */}
+      <EnlistmentLiveConfirmModal
+        target={confirmTarget}
+        isBusy={confirmBusy}
+        onConfirm={handleConfirmTogglePlatform}
+        onCancel={handleCancelTogglePlatform}
       />
     </div>
   )

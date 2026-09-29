@@ -22,7 +22,7 @@ interface EnlistmentDetailModalProps {
   onClose: () => void
   isReadOnly?: boolean
   onEdit?: (product: EnlistmentProduct) => void
-  onTogglePlatformEnlisted?: (product: EnlistmentProduct, platform: string) => Promise<void>
+  onTogglePlatformEnlisted?: (product: EnlistmentProduct, platform: string) => Promise<void> | void
 }
 
 export default function EnlistmentDetailModal({

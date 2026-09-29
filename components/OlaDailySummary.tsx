@@ -24,7 +24,7 @@ export default function OlaDailySummary({date,rows}:{date:string;rows:OlaDailyRo
       <thead><tr><th>Account</th><th className="num">Active SKU</th><th className="num">Available</th><th className="num">Percentage</th></tr></thead>
       <tbody>
         {sorted.map((r,i)=><tr key={`${r.account_code}-${r.location_name||'all'}-${i}`}>
-          <td>{labelFor(r)}</td><td className="num">{r.active_sku}</td><td className="num">{r.available}</td><td className="num strong">{r.ola_pct.toFixed(0)}%</td>
+          <td>{labelFor(r)}{r.account_code==='daraz'&&<span style={{fontSize:10,color:'#fbbf24',marginLeft:6,fontWeight:600}}>(DOD)</span>}</td><td className="num">{r.active_sku}</td><td className="num">{r.available}</td><td className="num strong">{r.ola_pct.toFixed(0)}%</td>
         </tr>)}
       </tbody>
       <tfoot><tr><td>Grand Total</td><td className="num">{active}</td><td className="num">{available}</td><td className="num">{pct.toFixed(0)}%</td></tr></tfoot>

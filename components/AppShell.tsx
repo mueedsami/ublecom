@@ -26,6 +26,7 @@ const items = [
   ['/enlistment', 'Enlistment Hub', FileSpreadsheet],
   ['/dh', 'Pandamart DH', Store],
   ['/othoba', 'Othoba Tracker', ShoppingBag],
+  ['/daraz', 'Daraz DOD', ShoppingBag],
   ['/stock', 'Stock Tracking', Boxes],
   ['/price', 'Price / CPP', TrendingDown],
   ['/search', 'Search / SoS', Search],
