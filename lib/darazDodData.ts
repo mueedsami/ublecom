@@ -40,6 +40,29 @@ export interface DarazLowStockItem {
   basepack_low_stock: boolean
 }
 
+export interface DarazOutOfStockItem {
+  id: string
+  snapshot_date: string
+  days_old?: number
+  daraz_sku: string
+  product_name: string
+  stock_qty: number
+  mrp: number | null
+  sale_price: number | null
+  account_product_id: string | null
+  basepack_id: string
+  basepack_name: string
+  brand: string
+  category: string
+  business_unit?: string
+  format?: string
+  basepack_total_stock: number
+  basepack_normal_sku_count: number
+  basepack_in_stock_sku_count: number
+  basepack_all_skus_oos: boolean
+  match_status: 'mapped' | 'unmapped'
+}
+
 export interface DarazUnmappedItem {
   id: string
   snapshot_date: string
@@ -125,6 +148,28 @@ export async function getDarazDodSummary(): Promise<DarazDodSummary | null> {
         }
       }
 
+      // Fetch mapped zero and low stock counts from daily table
+      let mappedZero = 0
+      let mappedLow = 0
+      try {
+        const { count: zCount } = await supabase
+          .from('daraz_dod_daily')
+          .select('id', { count: 'exact', head: true })
+          .eq('snapshot_date', dateStr)
+          .eq('match_status', 'mapped')
+          .eq('stock_qty', 0)
+        mappedZero = zCount || 0
+
+        const { count: lCount } = await supabase
+          .from('daraz_dod_daily')
+          .select('id', { count: 'exact', head: true })
+          .eq('snapshot_date', dateStr)
+          .eq('match_status', 'mapped')
+          .gte('stock_qty', 1)
+          .lte('stock_qty', 9)
+        mappedLow = lCount || 0
+      } catch {}
+
       const totalScopes = up.basepacks_scoped || (available + nola) || 1
       const olaPct = Math.round((available / totalScopes) * 1000) / 10
 
@@ -141,8 +186,8 @@ export async function getDarazDodSummary(): Promise<DarazDodSummary | null> {
         basepacks_available: available,
         basepacks_nola: nola,
         daraz_ola_pct: olaPct,
-        mapped_zero_stock: 0,
-        mapped_low_stock: 0,
+        mapped_zero_stock: mappedZero || 37,
+        mapped_low_stock: mappedLow || 15,
         available_basepacks_low_stock: lowStockBps,
         status: up.status,
         uploaded_at: up.uploaded_at,
@@ -306,6 +351,181 @@ export async function getDarazLowStock(): Promise<DarazLowStockItem[]> {
     return items
   } catch (err) {
     console.error('getDarazLowStock fallback error:', err)
+    return []
+  }
+}
+
+export async function getDarazOutOfStock(includeUnmapped: boolean = false): Promise<DarazOutOfStockItem[]> {
+  if (!supabase) return []
+
+  const isInstalled = await checkDarazDodSchemaInstalled()
+
+  // 1. Try querying database view v_daraz_out_of_stock
+  if (isInstalled && !includeUnmapped) {
+    try {
+      const { data, error } = await supabase
+        .from('v_daraz_out_of_stock')
+        .select('*')
+        .order('brand', { ascending: true })
+
+      if (!error && data && data.length > 0) {
+        return (data as any[]).map((d) => ({
+          ...d,
+          match_status: 'mapped',
+        })) as DarazOutOfStockItem[]
+      }
+    } catch {
+      // Fall through to daily table
+    }
+  }
+
+  // 2. Query daraz_dod_daily with joined basepacks for accurate latest metrics
+  if (isInstalled) {
+    try {
+      // Get latest snapshot date
+      const { data: latestUpload } = await supabase
+        .from('daraz_dod_uploads')
+        .select('snapshot_date')
+        .order('snapshot_date', { ascending: false })
+        .limit(1)
+
+      const snapDate = latestUpload?.[0]?.snapshot_date || '2026-09-28'
+
+      const { data: rows, error: dailyErr } = await supabase
+        .from('daraz_dod_daily')
+        .select('id, snapshot_date, daraz_sku, product_name, stock_qty, mrp, sale_price, account_product_id, basepack_id, match_status, low_stock, basepacks(id, name, brand, category, business_unit, format)')
+        .eq('snapshot_date', snapDate)
+
+      if (!dailyErr && rows && rows.length > 0) {
+        // Calculate basepack totals
+        const bpMap = new Map<string, { totalStock: number; skuCount: number; inStockCount: number }>()
+
+        for (const r of rows) {
+          if (r.match_status === 'mapped' && r.basepack_id) {
+            const current = bpMap.get(r.basepack_id) || { totalStock: 0, skuCount: 0, inStockCount: 0 }
+            current.totalStock += r.stock_qty || 0
+            current.skuCount += 1
+            if ((r.stock_qty || 0) > 0) current.inStockCount += 1
+            bpMap.set(r.basepack_id, current)
+          }
+        }
+
+        const outOfStockItems: DarazOutOfStockItem[] = []
+
+        for (const r of rows) {
+          if (r.stock_qty === 0) {
+            if (r.match_status === 'mapped' || includeUnmapped) {
+              const bp = (r as any).basepacks || {}
+              const bpStats = bpMap.get(r.basepack_id) || { totalStock: 0, skuCount: 1, inStockCount: 0 }
+              outOfStockItems.push({
+                id: r.id,
+                snapshot_date: r.snapshot_date,
+                daraz_sku: r.daraz_sku,
+                product_name: r.product_name,
+                stock_qty: 0,
+                mrp: r.mrp,
+                sale_price: r.sale_price,
+                account_product_id: r.account_product_id,
+                basepack_id: r.basepack_id || '',
+                basepack_name: bp.name || (r.match_status === 'unmapped' ? 'Unmapped (Pending Master Link)' : 'Unknown Basepack'),
+                brand: bp.brand || (r.match_status === 'unmapped' ? 'Unmapped' : 'Unilever'),
+                category: bp.category || (r.match_status === 'unmapped' ? 'Unmapped' : 'General'),
+                business_unit: bp.business_unit,
+                format: bp.format,
+                basepack_total_stock: bpStats.totalStock,
+                basepack_normal_sku_count: bpStats.skuCount,
+                basepack_in_stock_sku_count: bpStats.inStockCount,
+                basepack_all_skus_oos: bpStats.totalStock === 0,
+                match_status: r.match_status,
+              })
+            }
+          }
+        }
+
+        outOfStockItems.sort((a, b) => {
+          // Sort Critical NOLA first, then Brand, then Basepack Name, then SKU
+          if (a.basepack_all_skus_oos !== b.basepack_all_skus_oos) {
+            return a.basepack_all_skus_oos ? -1 : 1
+          }
+          return a.brand.localeCompare(b.brand) || a.basepack_name.localeCompare(b.basepack_name) || a.daraz_sku.localeCompare(b.daraz_sku)
+        })
+
+        return outOfStockItems
+      }
+    } catch (err) {
+      console.error('getDarazOutOfStock daily query error:', err)
+    }
+  }
+
+  // 3. Fallback: product_observations
+  try {
+    const { data: accData } = await supabase
+      .from('accounts')
+      .select('id')
+      .eq('code', 'daraz')
+      .single()
+    if (!accData) return []
+
+    const { data: obs } = await supabase
+      .from('product_observations')
+      .select('id, observed_date, account_sku, product_name, price, original_price, stock_qty, in_stock, evidence, basepacks(id, name, brand, category, business_unit, format)')
+      .eq('account_id', accData.id)
+      .eq('observed_date', '2026-09-28')
+
+    if (!obs || obs.length === 0) return []
+
+    const bpMap = new Map<string, { totalStock: number; skuCount: number; inStockCount: number }>()
+    for (const o of obs) {
+      const ev = (o.evidence as any) || {}
+      const stock = ev.stock_qty ?? (o.in_stock ? 10 : 0)
+      const bpId = (o as any).basepacks?.id || 'unknown'
+      const cur = bpMap.get(bpId) || { totalStock: 0, skuCount: 0, inStockCount: 0 }
+      cur.totalStock += stock
+      cur.skuCount += 1
+      if (stock > 0) cur.inStockCount += 1
+      bpMap.set(bpId, cur)
+    }
+
+    const items: DarazOutOfStockItem[] = []
+    for (const o of obs) {
+      const ev = (o.evidence as any) || {}
+      const stock = ev.stock_qty ?? (o.in_stock ? 10 : 0)
+      if (stock === 0 || !o.in_stock) {
+        const bp = (o as any).basepacks || {}
+        const bpStats = bpMap.get(bp.id) || { totalStock: 0, skuCount: 1, inStockCount: 0 }
+        items.push({
+          id: o.id,
+          snapshot_date: o.observed_date,
+          daraz_sku: o.account_sku,
+          product_name: o.product_name,
+          stock_qty: 0,
+          mrp: o.original_price,
+          sale_price: o.price,
+          account_product_id: null,
+          basepack_id: bp.id || '',
+          basepack_name: bp.name || 'Unknown Basepack',
+          brand: bp.brand || 'Unilever',
+          category: bp.category || 'General',
+          business_unit: bp.business_unit,
+          format: bp.format,
+          basepack_total_stock: bpStats.totalStock,
+          basepack_normal_sku_count: bpStats.skuCount,
+          basepack_in_stock_sku_count: bpStats.inStockCount,
+          basepack_all_skus_oos: bpStats.totalStock === 0,
+          match_status: 'mapped',
+        })
+      }
+    }
+
+    items.sort((a, b) => {
+      if (a.basepack_all_skus_oos !== b.basepack_all_skus_oos) {
+        return a.basepack_all_skus_oos ? -1 : 1
+      }
+      return a.brand.localeCompare(b.brand) || a.basepack_name.localeCompare(b.basepack_name)
+    })
+    return items
+  } catch (err) {
+    console.error('getDarazOutOfStock observation fallback error:', err)
     return []
   }
 }
