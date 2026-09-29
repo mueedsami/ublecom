@@ -1,5 +1,6 @@
 'use client'
 import React, { useEffect, useState, useMemo } from 'react'
+import { useRouter } from 'next/navigation'
 import Header from '@/components/Header'
 import Loading from '@/components/Loading'
 import MarketplaceTagModal from '@/components/MarketplaceTagModal'
@@ -60,6 +61,14 @@ export default function MarketplaceAccountPage({
   params: { account: string }
 }) {
   const accountCode = (params.account || 'othoba').toLowerCase()
+  const router = useRouter()
+
+  useEffect(() => {
+    if (accountCode === 'shajgoj') {
+      router.replace('/shajgoj')
+    }
+  }, [accountCode, router])
+
   const config = getMarketplaceConfig(accountCode)
 
   const [activeTab, setActiveTab] = useState<'analytics' | 'flags' | 'tagging' | 'import'>('analytics')

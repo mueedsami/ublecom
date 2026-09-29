@@ -27,6 +27,7 @@ const items = [
   ['/dh', 'Pandamart DH', Store],
   ['/othoba', 'Othoba Tracker', ShoppingBag],
   ['/daraz', 'Daraz DOD', ShoppingBag],
+  ['/shajgoj', 'Shajgoj OLA', ShoppingBag],
   ['/stock', 'Stock Tracking', Boxes],
   ['/price', 'Price / CPP', TrendingDown],
   ['/search', 'Search / SoS', Search],
