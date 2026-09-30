@@ -252,7 +252,7 @@ export async function getShajgojSummary(): Promise<ShajgojSummary | null> {
     }
 
     const ap = apMetaMap.get(item.sku?.trim() || '')
-    const webStatus = item.web_status || ap?.metadata?.web_status || 'In Stock'
+    const webStatus = (item as any).web_status || ap?.metadata?.web_status || 'In Stock'
     const isUnres = webStatus === 'Not found' || webStatus.includes('not found') || webStatus === 'unresolved'
     if (isUnres) {
       unresolvedCount++

@@ -84,6 +84,25 @@ export const MARKETPLACE_ACCOUNTS: Record<string, MarketplaceAccountConfig> = {
       totalAmount: ['Total Revenue', 'Total Sales', 'Total Amount'],
     },
   },
+  foodi: {
+    code: 'foodi',
+    name: 'Foodi',
+    displayName: 'Foodi Stock & Sales Tracker',
+    singleStorefront: true,
+    defaultVendorName: 'Unilever Flagship Store',
+    columnAliases: {
+      productId: ['SKU', 'sku', 'Item ID', 'Product ID'],
+      name: ['Product Name', 'ProductName', 'Name', 'Title'],
+      sku: ['SKU', 'sku', 'Item ID'],
+      category: ['Category', 'category'],
+      currentStock: ['Total Stock', 'total_stock', 'Stock', 'Current Stock'],
+      soldQty: ['30 Day Sale Qty', '30 Day Sale', 'sold_qty', 'Sold Qty'],
+      tp: ['TP', 'Unit Selling Price', 'tp'],
+      mrp: ['MRP', 'Unit Price', 'mrp'],
+      sellingPrice: ['Selling Price', 'selling_price', 'Special Price'],
+      barcodes: ['Barcodes', 'barcodes', 'Barcode'],
+    },
+  },
 }
 
 export function getMarketplaceConfig(accountCode: string): MarketplaceAccountConfig {
